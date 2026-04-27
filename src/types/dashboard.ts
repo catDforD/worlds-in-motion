@@ -74,10 +74,12 @@ export type Character = {
 
 export type Relationship = {
   left: string;
-  leftStatus: string;
   right: string;
-  rightStatus: string;
   tension: number;
+  leftStatus?: string;
+  rightStatus?: string;
+  description?: string;
+  note?: string;
 };
 
 export type Secret = {

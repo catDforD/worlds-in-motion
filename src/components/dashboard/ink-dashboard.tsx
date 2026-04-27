@@ -25,6 +25,7 @@ import {
   ShieldQuestionMark,
   Sparkles,
   Target,
+  Trash2,
   TrendingDown,
   TrendingUp,
   UserRound,
@@ -38,6 +39,17 @@ import { useMemo, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { dashboardData } from "@/lib/dashboard-data";
 import {
+  createSeedId,
+  deriveSeedCharacters,
+  deriveSeedRelationships,
+  deriveSeedStats,
+  getWorldSeedAssetsSnapshot,
+  normalizeWorldSeedAssets,
+  parseStoredWorldSeedAssets,
+  saveWorldSeedAssets,
+  subscribeToWorldSeedAssets,
+} from "@/lib/world-seed-assets";
+import {
   parseStoredCreatedWorld,
   WORLD_CREATION_STORAGE_KEY,
 } from "@/lib/world-creation";
@@ -50,7 +62,20 @@ import {
   worldInfoToWorldSettings,
   worldSettingsToWorldInfo,
 } from "@/lib/world-settings";
-import type { DashboardIconKey, WorldInfo } from "@/types/dashboard";
+import type {
+  Character,
+  DashboardIconKey,
+  Relationship,
+  StatItem,
+  WorldInfo,
+} from "@/types/dashboard";
+import type {
+  WorldSeedAssets,
+  WorldSeedCharacter,
+  WorldSeedFaction,
+  WorldSeedLocation,
+  WorldSeedRelationship,
+} from "@/types/world-seed-assets";
 import type { WorldSettings } from "@/types/world-settings";
 
 const iconMap: Record<DashboardIconKey, LucideIcon> = {
@@ -208,9 +233,11 @@ function Sidebar() {
 function WorldBanner({
   world,
   onEditSettings,
+  onEditSeeds,
 }: {
   world: WorldInfo;
   onEditSettings: () => void;
+  onEditSeeds: () => void;
 }) {
   return (
     <section className="world-banner">
@@ -247,7 +274,12 @@ function WorldBanner({
           <Settings aria-hidden="true" className="size-4" />
           世界设定
         </Button>
-        <button type="button" aria-label="资源箱" className="round-action">
+        <button
+          type="button"
+          aria-label="管理内容种子"
+          className="round-action"
+          onClick={onEditSeeds}
+        >
           <Package aria-hidden="true" className="size-5" />
         </button>
         <button type="button" aria-label="消息提醒" className="round-action">
@@ -403,11 +435,603 @@ function WorldSettingsEditor({
   );
 }
 
-function StatsAndRuntime() {
+const characterSeedFields: Array<{
+  name: keyof Omit<WorldSeedCharacter, "id">;
+  label: string;
+  placeholder: string;
+  multiline?: boolean;
+}> = [
+  { name: "name", label: "姓名", placeholder: "例如：沈清辞" },
+  { name: "identity", label: "身份", placeholder: "例如：盐务巡检" },
+  {
+    name: "goal",
+    label: "目标",
+    placeholder: "写下角色正在追逐或回避的事。",
+    multiline: true,
+  },
+  {
+    name: "status",
+    label: "状态",
+    placeholder: "例如：潜伏、受伤、结盟观望。",
+    multiline: true,
+  },
+];
+
+const factionSeedFields: Array<{
+  name: keyof Omit<WorldSeedFaction, "id">;
+  label: string;
+  placeholder: string;
+  multiline?: boolean;
+}> = [
+  { name: "name", label: "名称", placeholder: "例如：江南盐帮" },
+  { name: "stance", label: "立场", placeholder: "例如：拥护新政" },
+  {
+    name: "resources",
+    label: "资源",
+    placeholder: "写下钱粮、人脉、据点或秘术。",
+    multiline: true,
+  },
+  {
+    name: "conflict",
+    label: "冲突点",
+    placeholder: "写下它与谁、因何事发生长期摩擦。",
+    multiline: true,
+  },
+];
+
+const locationSeedFields: Array<{
+  name: keyof Omit<WorldSeedLocation, "id">;
+  label: string;
+  placeholder: string;
+  multiline?: boolean;
+}> = [
+  { name: "name", label: "名称", placeholder: "例如：听雨楼" },
+  { name: "type", label: "类型", placeholder: "例如：码头、禁宫、书院" },
+  {
+    name: "importance",
+    label: "重要性",
+    placeholder: "写下地点为什么会影响世界走向。",
+    multiline: true,
+  },
+];
+
+function newCharacterSeed(): WorldSeedCharacter {
+  return {
+    id: createSeedId("character"),
+    name: "",
+    identity: "",
+    goal: "",
+    status: "",
+  };
+}
+
+function newFactionSeed(): WorldSeedFaction {
+  return {
+    id: createSeedId("faction"),
+    name: "",
+    stance: "",
+    resources: "",
+    conflict: "",
+  };
+}
+
+function newLocationSeed(): WorldSeedLocation {
+  return {
+    id: createSeedId("location"),
+    name: "",
+    type: "",
+    importance: "",
+  };
+}
+
+function newRelationshipSeed(): WorldSeedRelationship {
+  return {
+    id: createSeedId("relationship"),
+    participantA: "",
+    participantB: "",
+    description: "",
+    tension: 50,
+    note: "",
+  };
+}
+
+function SeedAssetsEditor({
+  assets,
+  onClose,
+}: {
+  assets: WorldSeedAssets;
+  onClose: () => void;
+}) {
+  const [form, setForm] = useState(() => normalizeWorldSeedAssets(assets));
+
+  function updateCharacter(
+    id: string,
+    field: keyof Omit<WorldSeedCharacter, "id">,
+    value: string,
+  ) {
+    setForm((current) => ({
+      ...current,
+      characters: current.characters.map((character) =>
+        character.id === id ? { ...character, [field]: value } : character,
+      ),
+    }));
+  }
+
+  function updateFaction(
+    id: string,
+    field: keyof Omit<WorldSeedFaction, "id">,
+    value: string,
+  ) {
+    setForm((current) => ({
+      ...current,
+      factions: current.factions.map((faction) =>
+        faction.id === id ? { ...faction, [field]: value } : faction,
+      ),
+    }));
+  }
+
+  function updateLocation(
+    id: string,
+    field: keyof Omit<WorldSeedLocation, "id">,
+    value: string,
+  ) {
+    setForm((current) => ({
+      ...current,
+      locations: current.locations.map((location) =>
+        location.id === id ? { ...location, [field]: value } : location,
+      ),
+    }));
+  }
+
+  function updateRelationship(
+    id: string,
+    field: keyof Omit<WorldSeedRelationship, "id">,
+    value: string | number,
+  ) {
+    setForm((current) => ({
+      ...current,
+      relationships: current.relationships.map((relationship) =>
+        relationship.id === id
+          ? { ...relationship, [field]: value }
+          : relationship,
+      ),
+    }));
+  }
+
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    saveWorldSeedAssets(form);
+    onClose();
+  }
+
+  return (
+    <div className="settings-overlay seed-overlay" role="presentation">
+      <form
+        className="settings-panel seed-panel"
+        aria-labelledby="world-seeds-title"
+        onSubmit={handleSubmit}
+      >
+        <header className="settings-panel-head">
+          <div>
+            <p className="eyebrow">本地内容种子</p>
+            <h2 id="world-seeds-title">整理世界资产</h2>
+          </div>
+          <button
+            type="button"
+            className="round-action settings-close"
+            aria-label="关闭内容种子"
+            onClick={onClose}
+          >
+            <X aria-hidden="true" className="size-5" />
+          </button>
+        </header>
+
+        <div className="seed-summary" aria-label="种子统计">
+          <span>角色 {form.characters.length}</span>
+          <span>势力 {form.factions.length}</span>
+          <span>地点 {form.locations.length}</span>
+          <span>关系 {form.relationships.length}</span>
+        </div>
+
+        <div className="seed-sections">
+          <section className="seed-section" aria-labelledby="character-seeds-title">
+            <div className="seed-section-head">
+              <div>
+                <h3 id="character-seeds-title">角色种子</h3>
+                <p>姓名、身份、目标和当前状态会同步到活跃角色。</p>
+              </div>
+              <Button
+                type="button"
+                className="ink-action"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setForm((current) => ({
+                    ...current,
+                    characters: [...current.characters, newCharacterSeed()],
+                  }))
+                }
+              >
+                <PlusCircle aria-hidden="true" className="size-4" />
+                新增角色
+              </Button>
+            </div>
+            <div className="seed-list">
+              {form.characters.length === 0 ? (
+                <p className="seed-empty">还没有角色种子。</p>
+              ) : (
+                form.characters.map((character) => (
+                  <article className="seed-row" key={character.id}>
+                    <div className="seed-field-grid">
+                      {characterSeedFields.map((field) => (
+                        <label className="seed-field" key={field.name}>
+                          <span>{field.label}</span>
+                          {field.multiline ? (
+                            <textarea
+                              value={character[field.name]}
+                              onChange={(event) =>
+                                updateCharacter(
+                                  character.id,
+                                  field.name,
+                                  event.target.value,
+                                )
+                              }
+                              placeholder={field.placeholder}
+                              rows={2}
+                            />
+                          ) : (
+                            <input
+                              value={character[field.name]}
+                              onChange={(event) =>
+                                updateCharacter(
+                                  character.id,
+                                  field.name,
+                                  event.target.value,
+                                )
+                              }
+                              placeholder={field.placeholder}
+                            />
+                          )}
+                        </label>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      className="seed-delete"
+                      aria-label="删除角色种子"
+                      onClick={() =>
+                        setForm((current) => ({
+                          ...current,
+                          characters: current.characters.filter(
+                            (item) => item.id !== character.id,
+                          ),
+                        }))
+                      }
+                    >
+                      <Trash2 aria-hidden="true" className="size-4" />
+                    </button>
+                  </article>
+                ))
+              )}
+            </div>
+          </section>
+
+          <section className="seed-section" aria-labelledby="faction-seeds-title">
+            <div className="seed-section-head">
+              <div>
+                <h3 id="faction-seeds-title">势力种子</h3>
+                <p>记录立场、资源与冲突点，用于统计概览。</p>
+              </div>
+              <Button
+                type="button"
+                className="ink-action"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setForm((current) => ({
+                    ...current,
+                    factions: [...current.factions, newFactionSeed()],
+                  }))
+                }
+              >
+                <PlusCircle aria-hidden="true" className="size-4" />
+                新增势力
+              </Button>
+            </div>
+            <div className="seed-list">
+              {form.factions.length === 0 ? (
+                <p className="seed-empty">还没有势力种子。</p>
+              ) : (
+                form.factions.map((faction) => (
+                  <article className="seed-row" key={faction.id}>
+                    <div className="seed-field-grid">
+                      {factionSeedFields.map((field) => (
+                        <label className="seed-field" key={field.name}>
+                          <span>{field.label}</span>
+                          {field.multiline ? (
+                            <textarea
+                              value={faction[field.name]}
+                              onChange={(event) =>
+                                updateFaction(
+                                  faction.id,
+                                  field.name,
+                                  event.target.value,
+                                )
+                              }
+                              placeholder={field.placeholder}
+                              rows={2}
+                            />
+                          ) : (
+                            <input
+                              value={faction[field.name]}
+                              onChange={(event) =>
+                                updateFaction(
+                                  faction.id,
+                                  field.name,
+                                  event.target.value,
+                                )
+                              }
+                              placeholder={field.placeholder}
+                            />
+                          )}
+                        </label>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      className="seed-delete"
+                      aria-label="删除势力种子"
+                      onClick={() =>
+                        setForm((current) => ({
+                          ...current,
+                          factions: current.factions.filter(
+                            (item) => item.id !== faction.id,
+                          ),
+                        }))
+                      }
+                    >
+                      <Trash2 aria-hidden="true" className="size-4" />
+                    </button>
+                  </article>
+                ))
+              )}
+            </div>
+          </section>
+
+          <section className="seed-section" aria-labelledby="location-seeds-title">
+            <div className="seed-section-head">
+              <div>
+                <h3 id="location-seeds-title">地点种子</h3>
+                <p>地点类型和重要性会作为世界底稿资产保存。</p>
+              </div>
+              <Button
+                type="button"
+                className="ink-action"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setForm((current) => ({
+                    ...current,
+                    locations: [...current.locations, newLocationSeed()],
+                  }))
+                }
+              >
+                <PlusCircle aria-hidden="true" className="size-4" />
+                新增地点
+              </Button>
+            </div>
+            <div className="seed-list">
+              {form.locations.length === 0 ? (
+                <p className="seed-empty">还没有地点种子。</p>
+              ) : (
+                form.locations.map((location) => (
+                  <article className="seed-row" key={location.id}>
+                    <div className="seed-field-grid compact">
+                      {locationSeedFields.map((field) => (
+                        <label className="seed-field" key={field.name}>
+                          <span>{field.label}</span>
+                          {field.multiline ? (
+                            <textarea
+                              value={location[field.name]}
+                              onChange={(event) =>
+                                updateLocation(
+                                  location.id,
+                                  field.name,
+                                  event.target.value,
+                                )
+                              }
+                              placeholder={field.placeholder}
+                              rows={2}
+                            />
+                          ) : (
+                            <input
+                              value={location[field.name]}
+                              onChange={(event) =>
+                                updateLocation(
+                                  location.id,
+                                  field.name,
+                                  event.target.value,
+                                )
+                              }
+                              placeholder={field.placeholder}
+                            />
+                          )}
+                        </label>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      className="seed-delete"
+                      aria-label="删除地点种子"
+                      onClick={() =>
+                        setForm((current) => ({
+                          ...current,
+                          locations: current.locations.filter(
+                            (item) => item.id !== location.id,
+                          ),
+                        }))
+                      }
+                    >
+                      <Trash2 aria-hidden="true" className="size-4" />
+                    </button>
+                  </article>
+                ))
+              )}
+            </div>
+          </section>
+
+          <section className="seed-section" aria-labelledby="relationship-seeds-title">
+            <div className="seed-section-head">
+              <div>
+                <h3 id="relationship-seeds-title">关系种子</h3>
+                <p>A、B、关系描述、紧张度和备注会同步到紧张关系。</p>
+              </div>
+              <Button
+                type="button"
+                className="ink-action"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setForm((current) => ({
+                    ...current,
+                    relationships: [
+                      ...current.relationships,
+                      newRelationshipSeed(),
+                    ],
+                  }))
+                }
+              >
+                <PlusCircle aria-hidden="true" className="size-4" />
+                新增关系
+              </Button>
+            </div>
+            <div className="seed-list">
+              {form.relationships.length === 0 ? (
+                <p className="seed-empty">还没有关系种子。</p>
+              ) : (
+                form.relationships.map((relationship) => (
+                  <article className="seed-row" key={relationship.id}>
+                    <div className="seed-field-grid relation-fields">
+                      <label className="seed-field">
+                        <span>A</span>
+                        <input
+                          value={relationship.participantA}
+                          onChange={(event) =>
+                            updateRelationship(
+                              relationship.id,
+                              "participantA",
+                              event.target.value,
+                            )
+                          }
+                          placeholder="例如：叶晚棠"
+                        />
+                      </label>
+                      <label className="seed-field">
+                        <span>B</span>
+                        <input
+                          value={relationship.participantB}
+                          onChange={(event) =>
+                            updateRelationship(
+                              relationship.id,
+                              "participantB",
+                              event.target.value,
+                            )
+                          }
+                          placeholder="例如：盐帮"
+                        />
+                      </label>
+                      <label className="seed-field">
+                        <span>关系描述</span>
+                        <input
+                          value={relationship.description}
+                          onChange={(event) =>
+                            updateRelationship(
+                              relationship.id,
+                              "description",
+                              event.target.value,
+                            )
+                          }
+                          placeholder="例如：互相利用"
+                        />
+                      </label>
+                      <label className="seed-field tension-field">
+                        <span>紧张度 {relationship.tension}</span>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={relationship.tension}
+                          onChange={(event) =>
+                            updateRelationship(
+                              relationship.id,
+                              "tension",
+                              Number(event.target.value),
+                            )
+                          }
+                        />
+                      </label>
+                      <label className="seed-field seed-note">
+                        <span>备注</span>
+                        <textarea
+                          value={relationship.note}
+                          onChange={(event) =>
+                            updateRelationship(
+                              relationship.id,
+                              "note",
+                              event.target.value,
+                            )
+                          }
+                          placeholder="补充关系的隐情、触发点或未公开信息。"
+                          rows={2}
+                        />
+                      </label>
+                    </div>
+                    <button
+                      type="button"
+                      className="seed-delete"
+                      aria-label="删除关系种子"
+                      onClick={() =>
+                        setForm((current) => ({
+                          ...current,
+                          relationships: current.relationships.filter(
+                            (item) => item.id !== relationship.id,
+                          ),
+                        }))
+                      }
+                    >
+                      <Trash2 aria-hidden="true" className="size-4" />
+                    </button>
+                  </article>
+                ))
+              )}
+            </div>
+          </section>
+        </div>
+
+        <footer className="settings-actions">
+          <Button
+            type="button"
+            className="ink-action"
+            variant="outline"
+            onClick={onClose}
+          >
+            取消
+          </Button>
+          <Button type="submit" className="save-settings-action">
+            <Check aria-hidden="true" className="size-4" />
+            保存内容种子
+          </Button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
+function StatsAndRuntime({ stats }: { stats: StatItem[] }) {
   return (
     <div className="overview-grid">
       <section className="ink-panel stat-panel" aria-label="统计概览">
-        {dashboardData.stats.map((stat) => (
+        {stats.map((stat) => (
           <article className="stat-item" key={stat.label}>
             <DashboardIcon icon={stat.icon} className="size-7" />
             <div>
@@ -526,7 +1150,7 @@ function ChapterPanel() {
   );
 }
 
-function CharactersPanel() {
+function CharactersPanel({ characters }: { characters: Character[] }) {
   return (
     <section className="ink-panel character-panel">
       <div className="section-top">
@@ -534,7 +1158,7 @@ function CharactersPanel() {
         <a href="#">查看全部</a>
       </div>
       <div className="character-strip">
-        {dashboardData.characters.map((character) => (
+        {characters.map((character) => (
           <article className="character-card" key={character.name}>
             <Avatar
               name={character.name}
@@ -600,7 +1224,11 @@ function ClockDial() {
   );
 }
 
-function RelationshipsPanel() {
+function RelationshipsPanel({
+  relationships,
+}: {
+  relationships: Relationship[];
+}) {
   return (
     <section className="ink-panel side-panel">
       <div className="section-top">
@@ -608,8 +1236,11 @@ function RelationshipsPanel() {
         <a href="#">查看全部</a>
       </div>
       <div className="relation-list">
-        {dashboardData.relationships.map((relation) => (
-          <article className="relation-row" key={`${relation.left}-${relation.right}`}>
+        {relationships.map((relation) => (
+          <article
+            className="relation-row"
+            key={`${relation.left}-${relation.right}-${relation.description ?? ""}`}
+          >
             <Avatar
               name={relation.left}
               src={getAvatarSrc(relation.left)}
@@ -622,8 +1253,8 @@ function RelationshipsPanel() {
                 <span>{relation.right}</span>
               </div>
               <div className="relation-status">
-                <span>{relation.leftStatus}</span>
-                <span>{relation.rightStatus}</span>
+                <span>{relation.description ?? relation.leftStatus}</span>
+                <span>{relation.note ?? relation.rightStatus}</span>
               </div>
               <div className="tension-track" aria-hidden="true">
                 <span style={{ width: `${relation.tension}%` }} />
@@ -682,11 +1313,11 @@ function TrendsPanel() {
   );
 }
 
-function RightRail() {
+function RightRail({ relationships }: { relationships: Relationship[] }) {
   return (
     <aside className="right-rail" aria-label="世界信息栏">
       <TimeCard />
-      <RelationshipsPanel />
+      <RelationshipsPanel relationships={relationships} />
       <SecretsPanel />
       <TrendsPanel />
     </aside>
@@ -695,9 +1326,15 @@ function RightRail() {
 
 export function InkDashboard() {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [seedAssetsOpen, setSeedAssetsOpen] = useState(false);
   const worldSettingsValue = useSyncExternalStore(
     subscribeToWorldSettings,
     getWorldSettingsSnapshot,
+    () => null,
+  );
+  const seedAssetsValue = useSyncExternalStore(
+    subscribeToWorldSeedAssets,
+    getWorldSeedAssetsSnapshot,
     () => null,
   );
   const createdWorldValue = useSyncExternalStore(
@@ -712,6 +1349,10 @@ export function InkDashboard() {
   const storedSettings = useMemo(
     () => parseStoredWorldSettings(worldSettingsValue),
     [worldSettingsValue],
+  );
+  const seedAssets = useMemo(
+    () => parseStoredWorldSeedAssets(seedAssetsValue),
+    [seedAssetsValue],
   );
   const editableSettings = useMemo(() => {
     if (storedSettings) {
@@ -733,28 +1374,55 @@ export function InkDashboard() {
           : dashboardData.world,
     [createdWorld, storedSettings],
   );
+  const derivedStats = useMemo(
+    () => deriveSeedStats(seedAssets, dashboardData.stats),
+    [seedAssets],
+  );
+  const derivedCharacters = useMemo(
+    () =>
+      deriveSeedCharacters(
+        seedAssets,
+        dashboardData.characters,
+        dashboardData.assets.writer,
+      ),
+    [seedAssets],
+  );
+  const derivedRelationships = useMemo(
+    () => deriveSeedRelationships(seedAssets, dashboardData.relationships),
+    [seedAssets],
+  );
 
   return (
     <main className="dashboard-page">
       <Sidebar />
       <div className="dashboard-main">
-        <WorldBanner world={world} onEditSettings={() => setSettingsOpen(true)} />
+        <WorldBanner
+          world={world}
+          onEditSettings={() => setSettingsOpen(true)}
+          onEditSeeds={() => setSeedAssetsOpen(true)}
+        />
         <div className="dashboard-grid">
           <div className="main-column">
-            <StatsAndRuntime />
+            <StatsAndRuntime stats={derivedStats} />
             <div className="content-grid">
               <EventsPanel />
               <ChapterPanel />
             </div>
-            <CharactersPanel />
+            <CharactersPanel characters={derivedCharacters} />
           </div>
-          <RightRail />
+          <RightRail relationships={derivedRelationships} />
         </div>
       </div>
       {settingsOpen ? (
         <WorldSettingsEditor
           settings={editableSettings}
           onClose={() => setSettingsOpen(false)}
+        />
+      ) : null}
+      {seedAssetsOpen ? (
+        <SeedAssetsEditor
+          assets={seedAssets}
+          onClose={() => setSeedAssetsOpen(false)}
         />
       ) : null}
     </main>

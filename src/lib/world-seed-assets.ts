@@ -1,0 +1,338 @@
+import type { Character, Relationship, StatItem } from "@/types/dashboard";
+import type {
+  StoredWorldSeedAssets,
+  WorldSeedAssets,
+  WorldSeedCharacter,
+  WorldSeedFaction,
+  WorldSeedLocation,
+  WorldSeedRelationship,
+} from "@/types/world-seed-assets";
+
+export const WORLD_SEED_ASSETS_STORAGE_KEY =
+  "worlds-in-motion.world-seed-assets.v1";
+
+const WORLD_SEED_ASSETS_CHANGED_EVENT =
+  "worlds-in-motion:world-seed-assets-changed";
+const STORAGE_VERSION = 1;
+const DEFAULT_TENSION = 50;
+
+export const emptyWorldSeedAssets: WorldSeedAssets = {
+  characters: [],
+  factions: [],
+  locations: [],
+  relationships: [],
+};
+
+function isStringRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function readStringField(source: Record<string, unknown>, field: string) {
+  return typeof source[field] === "string" ? source[field] : null;
+}
+
+function clampTension(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return DEFAULT_TENSION;
+  }
+
+  return Math.min(100, Math.max(0, Math.round(value)));
+}
+
+function parseSeedArray<T>(
+  value: unknown,
+  parser: (item: Record<string, unknown>) => T | null,
+) {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const parsedItems: T[] = [];
+
+  for (const item of value) {
+    if (!isStringRecord(item)) {
+      return null;
+    }
+
+    const parsed = parser(item);
+    if (!parsed) {
+      return null;
+    }
+
+    parsedItems.push(parsed);
+  }
+
+  return parsedItems;
+}
+
+function parseCharacterSeed(
+  item: Record<string, unknown>,
+): WorldSeedCharacter | null {
+  const id = readStringField(item, "id");
+  const name = readStringField(item, "name");
+  const identity = readStringField(item, "identity");
+  const goal = readStringField(item, "goal");
+  const status = readStringField(item, "status");
+
+  if (id === null || name === null || identity === null || goal === null || status === null) {
+    return null;
+  }
+
+  return { id, name, identity, goal, status };
+}
+
+function parseFactionSeed(
+  item: Record<string, unknown>,
+): WorldSeedFaction | null {
+  const id = readStringField(item, "id");
+  const name = readStringField(item, "name");
+  const stance = readStringField(item, "stance");
+  const resources = readStringField(item, "resources");
+  const conflict = readStringField(item, "conflict");
+
+  if (id === null || name === null || stance === null || resources === null || conflict === null) {
+    return null;
+  }
+
+  return { id, name, stance, resources, conflict };
+}
+
+function parseLocationSeed(
+  item: Record<string, unknown>,
+): WorldSeedLocation | null {
+  const id = readStringField(item, "id");
+  const name = readStringField(item, "name");
+  const type = readStringField(item, "type");
+  const importance = readStringField(item, "importance");
+
+  if (id === null || name === null || type === null || importance === null) {
+    return null;
+  }
+
+  return { id, name, type, importance };
+}
+
+function parseRelationshipSeed(
+  item: Record<string, unknown>,
+): WorldSeedRelationship | null {
+  const id = readStringField(item, "id");
+  const participantA = readStringField(item, "participantA");
+  const participantB = readStringField(item, "participantB");
+  const description = readStringField(item, "description");
+  const note = readStringField(item, "note");
+
+  if (
+    id === null ||
+    participantA === null ||
+    participantB === null ||
+    description === null ||
+    note === null
+  ) {
+    return null;
+  }
+
+  return {
+    id,
+    participantA,
+    participantB,
+    description,
+    note,
+    tension: clampTension(item.tension),
+  };
+}
+
+export function normalizeWorldSeedAssets(assets: WorldSeedAssets): WorldSeedAssets {
+  return {
+    characters: assets.characters.map((character) => ({
+      ...character,
+      id: character.id || createSeedId("character"),
+    })),
+    factions: assets.factions.map((faction) => ({
+      ...faction,
+      id: faction.id || createSeedId("faction"),
+    })),
+    locations: assets.locations.map((location) => ({
+      ...location,
+      id: location.id || createSeedId("location"),
+    })),
+    relationships: assets.relationships.map((relationship) => ({
+      ...relationship,
+      id: relationship.id || createSeedId("relationship"),
+      tension: clampTension(relationship.tension),
+    })),
+  };
+}
+
+export function parseStoredWorldSeedAssets(value: string | null) {
+  if (!value) {
+    return emptyWorldSeedAssets;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+
+    if (!isStringRecord(parsed) || parsed.version !== STORAGE_VERSION) {
+      return emptyWorldSeedAssets;
+    }
+
+    const assetsValue = parsed.assets;
+    if (!isStringRecord(assetsValue)) {
+      return emptyWorldSeedAssets;
+    }
+
+    const characters = parseSeedArray(
+      assetsValue.characters,
+      parseCharacterSeed,
+    );
+    const factions = parseSeedArray(assetsValue.factions, parseFactionSeed);
+    const locations = parseSeedArray(assetsValue.locations, parseLocationSeed);
+    const relationships = parseSeedArray(
+      assetsValue.relationships,
+      parseRelationshipSeed,
+    );
+
+    if (
+      characters === null ||
+      factions === null ||
+      locations === null ||
+      relationships === null
+    ) {
+      return emptyWorldSeedAssets;
+    }
+
+    return {
+      characters,
+      factions,
+      locations,
+      relationships,
+    };
+  } catch {
+    return emptyWorldSeedAssets;
+  }
+}
+
+export function getWorldSeedAssetsSnapshot() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return window.localStorage.getItem(WORLD_SEED_ASSETS_STORAGE_KEY);
+}
+
+export function getStoredWorldSeedAssets() {
+  return parseStoredWorldSeedAssets(getWorldSeedAssetsSnapshot());
+}
+
+export function subscribeToWorldSeedAssets(callback: () => void) {
+  if (typeof window === "undefined") {
+    return () => undefined;
+  }
+
+  function handleStorage(event: StorageEvent) {
+    if (event.key === WORLD_SEED_ASSETS_STORAGE_KEY) {
+      callback();
+    }
+  }
+
+  window.addEventListener(WORLD_SEED_ASSETS_CHANGED_EVENT, callback);
+  window.addEventListener("storage", handleStorage);
+
+  return () => {
+    window.removeEventListener(WORLD_SEED_ASSETS_CHANGED_EVENT, callback);
+    window.removeEventListener("storage", handleStorage);
+  };
+}
+
+export function saveWorldSeedAssets(assets: WorldSeedAssets) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const payload: StoredWorldSeedAssets = {
+    version: STORAGE_VERSION,
+    assets: normalizeWorldSeedAssets(assets),
+  };
+
+  window.localStorage.setItem(
+    WORLD_SEED_ASSETS_STORAGE_KEY,
+    JSON.stringify(payload),
+  );
+  window.dispatchEvent(new Event(WORLD_SEED_ASSETS_CHANGED_EVENT));
+}
+
+export function hasWorldSeedAssets(assets: WorldSeedAssets) {
+  return (
+    assets.characters.length > 0 ||
+    assets.factions.length > 0 ||
+    assets.locations.length > 0 ||
+    assets.relationships.length > 0
+  );
+}
+
+export function deriveSeedStats(
+  assets: WorldSeedAssets,
+  defaults: StatItem[],
+) {
+  const countsByLabel = new Map([
+    ["角色", assets.characters.length],
+    ["势力", assets.factions.length],
+    ["地点", assets.locations.length],
+  ]);
+
+  return defaults.map((stat) => {
+    const count = countsByLabel.get(stat.label);
+
+    if (count === undefined || count === 0) {
+      return stat;
+    }
+
+    return {
+      ...stat,
+      value: String(count),
+    };
+  });
+}
+
+export function deriveSeedCharacters(
+  assets: WorldSeedAssets,
+  defaults: Character[],
+  defaultImageSrc: string,
+) {
+  if (assets.characters.length === 0) {
+    return defaults;
+  }
+
+  return assets.characters.map((character, index) => ({
+    name: character.name.trim() || "未命名角色",
+    role: character.identity.trim() || "身份未定",
+    goal: character.goal.trim() || "目标未定",
+    status: character.status.trim() || "状态未定",
+    influence: Math.min(92, 48 + ((index * 11) % 38)),
+    imageSrc: defaultImageSrc,
+  }));
+}
+
+export function deriveSeedRelationships(
+  assets: WorldSeedAssets,
+  defaults: Relationship[],
+) {
+  if (assets.relationships.length === 0) {
+    return defaults;
+  }
+
+  return assets.relationships.map((relationship) => ({
+    left: relationship.participantA.trim() || "未定参与方 A",
+    right: relationship.participantB.trim() || "未定参与方 B",
+    description: relationship.description.trim() || "关系未定",
+    note: relationship.note.trim() || "暂无备注",
+    tension: clampTension(relationship.tension),
+  }));
+}
+
+export function createSeedId(prefix: string) {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `${prefix}-${crypto.randomUUID()}`;
+  }
+
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
