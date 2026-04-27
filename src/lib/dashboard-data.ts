@@ -1,0 +1,161 @@
+import type { DashboardData } from "@/types/dashboard";
+
+export const dashboardData: DashboardData = {
+  assets: {
+    hero: "/dashbord/hero-jiangnan.png",
+    writer: "/dashbord/qunxiang.png",
+  },
+  navItems: [
+    { label: "世界", icon: "world", active: true },
+    { label: "角色", icon: "users" },
+    { label: "关系", icon: "network" },
+    { label: "运行", icon: "compass" },
+    { label: "事件", icon: "scroll" },
+    { label: "故事", icon: "book" },
+    { label: "设置", icon: "settings" },
+    { label: "日志", icon: "journal" },
+    { label: "工具", icon: "tools" },
+  ],
+  world: {
+    title: "烟雨江南",
+    description:
+      "大胤王朝，永平百年，表面上河清海晏，实则暗流涌动。朝堂之上，党争不休；江湖之中，势力交错；山河之间，秘辛隐现。",
+    tags: [
+      { label: "历史架空" },
+      { label: "权谋斗争" },
+      { label: "江湖武侠" },
+      { label: "朝堂纷争" },
+    ],
+  },
+  stats: [
+    { label: "角色", value: "34", unit: "人", icon: "roles" },
+    { label: "势力", value: "8", unit: "个", icon: "forces" },
+    { label: "地点", value: "27", unit: "处", icon: "places" },
+    { label: "事件", value: "152", unit: "件", icon: "events" },
+    { label: "秘密", value: "11", unit: "个", icon: "secrets" },
+  ],
+  runtime: {
+    title: "世界运行中",
+    days: 12,
+    progress: 74,
+    nextTime: "永泰二十三年 三月初九 巳时",
+  },
+  events: [
+    {
+      date: "三月初七",
+      title: "雷霆风波",
+      description: "春日宴会上，萧景琰当众弹劾户部侍郎，引发朝堂震动。",
+      participants: ["萧景琰", "陆昭明", "叶晚棠"],
+    },
+    {
+      date: "三月初八",
+      title: "密信之谜",
+      description: "叶晚棠在客栈后院发现一封密信，似与江南水患有关。",
+      participants: ["叶晚棠"],
+    },
+    {
+      date: "三月初五",
+      title: "江湖追杀",
+      description: "江无渊于姑苏城外遭黑衣人伏击，重伤逃脱。",
+      participants: ["江无渊", "慕容雪"],
+    },
+    {
+      date: "三月初三",
+      title: "边关急报",
+      description: "北境传来急报，匈奴大军压境，边关告急。",
+      participants: ["陆昭明"],
+    },
+  ],
+  chapter: {
+    title: "第十六章 · 暗潮初起",
+    summary:
+      "春雨连绵，京城笼在烟雾之中。朝堂之上，一纸奏折掀起千层浪，几人命运因此交错，暗潮，终于开始涌动。",
+    tags: ["权谋", "朝堂", "阴谋"],
+    date: "永泰二十三年 三月初七",
+    progressDots: 5,
+    activeDot: 1,
+    imageSrc: "/dashbord/chapter-river-pavilion.png",
+  },
+  characters: [
+    {
+      name: "萧景琰",
+      role: "六部侍书",
+      goal: "整顿吏治",
+      status: "谋划中",
+      influence: 72,
+      imageSrc: "/dashbord/avatar-xiao-jingyan.png.png",
+    },
+    {
+      name: "叶晚棠",
+      role: "相府侯门之女",
+      goal: "查明真相",
+      status: "调查中",
+      influence: 58,
+      imageSrc: "/dashbord/avatar-ye-wantang.png",
+    },
+    {
+      name: "江无渊",
+      role: "江湖浪客",
+      goal: "查清仇怨",
+      status: "受伤休养",
+      influence: 65,
+      imageSrc: "/dashbord/avatar-jiang-wuyuan.png",
+    },
+    {
+      name: "慕容雪",
+      role: "神秘女子",
+      goal: "寻找身世",
+      status: "隐匿中",
+      influence: 49,
+      imageSrc: "/dashbord/avatar-murong-xue.png",
+    },
+    {
+      name: "陆昭明",
+      role: "御史中丞",
+      goal: "权衡朝野",
+      status: "布局中",
+      influence: 68,
+      imageSrc: "/dashbord/avatar-lu-zhaoming.png",
+    },
+  ],
+  time: {
+    era: "大胤 · 永泰二十三年",
+    date: "三月初八　辰时",
+    day: "第 812 天",
+  },
+  relationships: [
+    {
+      left: "萧景琰",
+      leftStatus: "宿敌",
+      right: "沈清辞",
+      rightStatus: "政敌",
+      tension: 85,
+    },
+    {
+      left: "陆昭明",
+      leftStatus: "猜忌",
+      right: "叶晚棠",
+      rightStatus: "盟友",
+      tension: 62,
+    },
+    {
+      left: "慕容雪",
+      leftStatus: "对立",
+      right: "江无渊",
+      rightStatus: "旧识",
+      tension: 58,
+    },
+  ],
+  secrets: [
+    { text: "先帝遗诏的真正内容", priority: "high", icon: "network" },
+    { text: "江南水患背后的推手", priority: "high", icon: "world" },
+    { text: "慕容雪身世之谜", priority: "medium", icon: "secrets" },
+    { text: "无名山庄的真实目的", priority: "medium", icon: "roles" },
+  ],
+  trends: [
+    { text: "萧景琰势力上升", direction: "up" },
+    { text: "江无渊江湖声望下降", direction: "down" },
+    { text: "朝廷内斗加剧", direction: "up" },
+    { text: "北境局势急发紧张", direction: "up" },
+  ],
+};
