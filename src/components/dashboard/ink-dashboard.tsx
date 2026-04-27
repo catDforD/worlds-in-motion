@@ -6,6 +6,7 @@ import {
   Bell,
   BookOpen,
   Box,
+  CalendarPlus,
   Castle,
   Check,
   ChevronDown,
@@ -18,6 +19,7 @@ import {
   Package,
   Pause,
   Pencil,
+  Play,
   PlusCircle,
   Scroll,
   ScrollText,
@@ -50,6 +52,17 @@ import {
   subscribeToWorldSeedAssets,
 } from "@/lib/world-seed-assets";
 import {
+  advanceWorldRuntimeOneDay,
+  appendWorldRuntimeEvent,
+  getRecentWorldRuntimeEvents,
+  getWorldRuntimeSnapshot,
+  hasStoredWorldRuntime,
+  parseStoredWorldRuntimeState,
+  saveWorldRuntimeState,
+  subscribeToWorldRuntime,
+  toggleWorldRuntimePaused,
+} from "@/lib/world-runtime";
+import {
   parseStoredCreatedWorld,
   WORLD_CREATION_STORAGE_KEY,
 } from "@/lib/world-creation";
@@ -66,9 +79,17 @@ import type {
   Character,
   DashboardIconKey,
   Relationship,
+  RuntimeStatus,
   StatItem,
+  StoryChapter,
+  TimeInfo,
+  TimelineEvent,
   WorldInfo,
 } from "@/types/dashboard";
+import type {
+  WorldRuntimeEventType,
+  WorldRuntimeState,
+} from "@/types/world-runtime";
 import type {
   WorldSeedAssets,
   WorldSeedCharacter,
@@ -162,6 +183,18 @@ const avatarSrcByName = new Map(
   dashboardData.characters.map((character) => [character.name, character.imageSrc]),
 );
 
+const runtimeEventTypeOptions: Array<{
+  value: WorldRuntimeEventType;
+  label: string;
+}> = [
+  { value: "plot", label: "剧情" },
+  { value: "character", label: "角色" },
+  { value: "faction", label: "势力" },
+  { value: "location", label: "地点" },
+  { value: "secret", label: "秘密" },
+  { value: "other", label: "其他" },
+];
+
 function subscribeToCreatedWorld(callback: () => void) {
   window.addEventListener("storage", callback);
 
@@ -178,6 +211,74 @@ function getCreatedWorldValue() {
 
 function getAvatarSrc(name: string) {
   return avatarSrcByName.get(name) ?? dashboardData.assets.writer;
+}
+
+function clampProgress(value: number) {
+  return Math.min(100, Math.max(6, Math.round(value)));
+}
+
+function deriveRuntimeStatus(runtime: WorldRuntimeState): RuntimeStatus {
+  const dailyProgress = runtime.runDays === 0 ? 6 : (runtime.runDays % 30) * (100 / 30);
+
+  return {
+    title: runtime.isPaused ? "世界已暂停" : "世界运行中",
+    days: runtime.runDays,
+    progress: clampProgress(dailyProgress || 100),
+    nextTime: runtime.isPaused ? "等待继续运行" : runtime.currentWorldDate,
+  };
+}
+
+function deriveRuntimeStats(
+  stats: StatItem[],
+  runtime: WorldRuntimeState,
+) {
+  if (runtime.events.length === 0) {
+    return stats;
+  }
+
+  return stats.map((stat) =>
+    stat.label === "事件" ? { ...stat, value: String(runtime.events.length) } : stat,
+  );
+}
+
+function deriveRuntimeEvents(runtime: WorldRuntimeState): TimelineEvent[] {
+  if (runtime.events.length === 0) {
+    return dashboardData.events;
+  }
+
+  return getRecentWorldRuntimeEvents(runtime.events)
+    .slice(0, 4)
+    .map((event) => ({
+      date: event.date,
+      title: event.title,
+      description: event.summary,
+      participants: [],
+    }));
+}
+
+function deriveRuntimeChapter(runtime: WorldRuntimeState): StoryChapter {
+  if (!runtime.latestChapter) {
+    return dashboardData.chapter;
+  }
+
+  return {
+    ...dashboardData.chapter,
+    title: runtime.latestChapter.title,
+    summary: runtime.latestChapter.summary,
+    tags:
+      runtime.latestChapter.tags.length > 0
+        ? runtime.latestChapter.tags
+        : dashboardData.chapter.tags,
+    date: runtime.latestChapter.date,
+  };
+}
+
+function deriveRuntimeTime(runtime: WorldRuntimeState): TimeInfo {
+  return {
+    era: dashboardData.time.era,
+    date: runtime.currentWorldDate,
+    day: `第 ${runtime.runDays} 天`,
+  };
 }
 
 function Sidebar() {
@@ -1027,7 +1128,19 @@ function SeedAssetsEditor({
   );
 }
 
-function StatsAndRuntime({ stats }: { stats: StatItem[] }) {
+function StatsAndRuntime({
+  stats,
+  runtime,
+  onTogglePaused,
+  onAdvanceDay,
+}: {
+  stats: StatItem[];
+  runtime: RuntimeStatus;
+  onTogglePaused: () => void;
+  onAdvanceDay: () => void;
+}) {
+  const isPaused = runtime.title.includes("暂停");
+
   return (
     <div className="overview-grid">
       <section className="ink-panel stat-panel" aria-label="统计概览">
@@ -1052,20 +1165,42 @@ function StatsAndRuntime({ stats }: { stats: StatItem[] }) {
         <div className="min-w-0 flex-1">
           <div className="section-top compact">
             <h2>运行状态</h2>
-            <Button className="ink-action" variant="outline" size="sm">
-              <Pause aria-hidden="true" className="size-4" />
-              暂停运行
-            </Button>
+            <div className="runtime-actions">
+              <Button
+                className="ink-action"
+                variant="outline"
+                size="sm"
+                onClick={onTogglePaused}
+                type="button"
+              >
+                {isPaused ? (
+                  <Play aria-hidden="true" className="size-4" />
+                ) : (
+                  <Pause aria-hidden="true" className="size-4" />
+                )}
+                {isPaused ? "继续运行" : "暂停运行"}
+              </Button>
+              <Button
+                className="ink-action"
+                variant="outline"
+                size="sm"
+                onClick={onAdvanceDay}
+                type="button"
+              >
+                <CalendarPlus aria-hidden="true" className="size-4" />
+                推进一日
+              </Button>
+            </div>
           </div>
-          <p className="runtime-title">{dashboardData.runtime.title}</p>
+          <p className="runtime-title">{runtime.title}</p>
           <p className="runtime-meta">
-            已连续运行 {dashboardData.runtime.days} 天
+            已连续运行 {runtime.days} 天
           </p>
           <div className="progress-track" aria-hidden="true">
-            <span style={{ width: `${dashboardData.runtime.progress}%` }} />
+            <span style={{ width: `${runtime.progress}%` }} />
           </div>
           <p className="runtime-next">
-            下个时间点：{dashboardData.runtime.nextTime}
+            下个时间点：{runtime.nextTime}
           </p>
         </div>
       </section>
@@ -1073,15 +1208,88 @@ function StatsAndRuntime({ stats }: { stats: StatItem[] }) {
   );
 }
 
-function EventsPanel() {
+function EventsPanel({
+  events,
+  onRecordEvent,
+}: {
+  events: TimelineEvent[];
+  onRecordEvent: (input: {
+    title: string;
+    summary: string;
+    type: WorldRuntimeEventType;
+  }) => boolean;
+}) {
+  const [title, setTitle] = useState("");
+  const [summary, setSummary] = useState("");
+  const [type, setType] = useState<WorldRuntimeEventType>("plot");
+  const [error, setError] = useState("");
+
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const saved = onRecordEvent({ title, summary, type });
+
+    if (!saved) {
+      setError("标题和摘要都需要填写。");
+      return;
+    }
+
+    setTitle("");
+    setSummary("");
+    setType("plot");
+    setError("");
+  }
+
   return (
     <section className="ink-panel content-panel">
       <div className="section-top">
         <h2>近期事件</h2>
         <a href="#">查看全部</a>
       </div>
+      <form className="event-entry" onSubmit={handleSubmit}>
+        <div className="event-entry-grid">
+          <label>
+            <span>事件标题</span>
+            <input
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder="例如：密会破局"
+            />
+          </label>
+          <label>
+            <span>类型</span>
+            <select
+              value={type}
+              onChange={(event) =>
+                setType(event.target.value as WorldRuntimeEventType)
+              }
+            >
+              {runtimeEventTypeOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="event-summary-field">
+            <span>摘要</span>
+            <textarea
+              value={summary}
+              onChange={(event) => setSummary(event.target.value)}
+              placeholder="写下这件事发生了什么，以及它为什么重要。"
+              rows={2}
+            />
+          </label>
+        </div>
+        <div className="event-entry-actions">
+          <span role="status">{error}</span>
+          <Button type="submit" className="ink-action" variant="outline" size="sm">
+            <Scroll aria-hidden="true" className="size-4" />
+            记录事件
+          </Button>
+        </div>
+      </form>
       <div className="event-list">
-        {dashboardData.events.map((event) => (
+        {events.map((event) => (
           <article className="event-row" key={event.title}>
             <time>{event.date}</time>
             <div className="min-w-0">
@@ -1105,9 +1313,7 @@ function EventsPanel() {
   );
 }
 
-function ChapterPanel() {
-  const chapter = dashboardData.chapter;
-
+function ChapterPanel({ chapter }: { chapter: StoryChapter }) {
   return (
     <section className="ink-panel content-panel">
       <div className="section-top">
@@ -1192,14 +1398,14 @@ function CharactersPanel({ characters }: { characters: Character[] }) {
   );
 }
 
-function TimeCard() {
+function TimeCard({ time }: { time: TimeInfo }) {
   return (
     <section className="ink-panel time-card">
       <div>
         <p className="eyebrow">当前时间</p>
-        <p className="time-era">{dashboardData.time.era}</p>
-        <p className="time-date">{dashboardData.time.date}</p>
-        <p className="time-day">{dashboardData.time.day}</p>
+        <p className="time-era">{time.era}</p>
+        <p className="time-date">{time.date}</p>
+        <p className="time-day">{time.day}</p>
       </div>
       <div className="compass-clock" aria-hidden="true">
         <ClockDial />
@@ -1313,10 +1519,16 @@ function TrendsPanel() {
   );
 }
 
-function RightRail({ relationships }: { relationships: Relationship[] }) {
+function RightRail({
+  relationships,
+  time,
+}: {
+  relationships: Relationship[];
+  time: TimeInfo;
+}) {
   return (
     <aside className="right-rail" aria-label="世界信息栏">
-      <TimeCard />
+      <TimeCard time={time} />
       <RelationshipsPanel relationships={relationships} />
       <SecretsPanel />
       <TrendsPanel />
@@ -1342,6 +1554,11 @@ export function InkDashboard() {
     getCreatedWorldValue,
     () => null,
   );
+  const runtimeValue = useSyncExternalStore(
+    subscribeToWorldRuntime,
+    getWorldRuntimeSnapshot,
+    () => null,
+  );
   const createdWorld = useMemo(
     () => parseStoredCreatedWorld(createdWorldValue),
     [createdWorldValue],
@@ -1354,6 +1571,11 @@ export function InkDashboard() {
     () => parseStoredWorldSeedAssets(seedAssetsValue),
     [seedAssetsValue],
   );
+  const runtimeState = useMemo(
+    () => parseStoredWorldRuntimeState(runtimeValue),
+    [runtimeValue],
+  );
+  const hasRuntimeRecord = hasStoredWorldRuntime(runtimeValue);
   const editableSettings = useMemo(() => {
     if (storedSettings) {
       return storedSettings;
@@ -1375,8 +1597,34 @@ export function InkDashboard() {
     [createdWorld, storedSettings],
   );
   const derivedStats = useMemo(
-    () => deriveSeedStats(seedAssets, dashboardData.stats),
-    [seedAssets],
+    () =>
+      deriveRuntimeStats(
+        deriveSeedStats(seedAssets, dashboardData.stats),
+        runtimeState,
+      ),
+    [runtimeState, seedAssets],
+  );
+  const derivedRuntime = useMemo(
+    () =>
+      hasRuntimeRecord
+        ? deriveRuntimeStatus(runtimeState)
+        : dashboardData.runtime,
+    [hasRuntimeRecord, runtimeState],
+  );
+  const derivedEvents = useMemo(
+    () => (hasRuntimeRecord ? deriveRuntimeEvents(runtimeState) : dashboardData.events),
+    [hasRuntimeRecord, runtimeState],
+  );
+  const derivedChapter = useMemo(
+    () =>
+      hasRuntimeRecord
+        ? deriveRuntimeChapter(runtimeState)
+        : dashboardData.chapter,
+    [hasRuntimeRecord, runtimeState],
+  );
+  const derivedTime = useMemo(
+    () => (hasRuntimeRecord ? deriveRuntimeTime(runtimeState) : dashboardData.time),
+    [hasRuntimeRecord, runtimeState],
   );
   const derivedCharacters = useMemo(
     () =>
@@ -1391,6 +1639,28 @@ export function InkDashboard() {
     () => deriveSeedRelationships(seedAssets, dashboardData.relationships),
     [seedAssets],
   );
+  function handleTogglePaused() {
+    saveWorldRuntimeState(toggleWorldRuntimePaused(runtimeState));
+  }
+
+  function handleAdvanceDay() {
+    saveWorldRuntimeState(advanceWorldRuntimeOneDay(runtimeState));
+  }
+
+  function handleRecordEvent(input: {
+    title: string;
+    summary: string;
+    type: WorldRuntimeEventType;
+  }) {
+    const next = appendWorldRuntimeEvent(runtimeState, input);
+
+    if (!next) {
+      return false;
+    }
+
+    saveWorldRuntimeState(next);
+    return true;
+  }
 
   return (
     <main className="dashboard-page">
@@ -1403,14 +1673,22 @@ export function InkDashboard() {
         />
         <div className="dashboard-grid">
           <div className="main-column">
-            <StatsAndRuntime stats={derivedStats} />
+            <StatsAndRuntime
+              stats={derivedStats}
+              runtime={derivedRuntime}
+              onTogglePaused={handleTogglePaused}
+              onAdvanceDay={handleAdvanceDay}
+            />
             <div className="content-grid">
-              <EventsPanel />
-              <ChapterPanel />
+              <EventsPanel
+                events={derivedEvents}
+                onRecordEvent={handleRecordEvent}
+              />
+              <ChapterPanel chapter={derivedChapter} />
             </div>
             <CharactersPanel characters={derivedCharacters} />
           </div>
-          <RightRail relationships={derivedRelationships} />
+          <RightRail relationships={derivedRelationships} time={derivedTime} />
         </div>
       </div>
       {settingsOpen ? (
