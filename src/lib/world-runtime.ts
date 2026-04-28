@@ -1,6 +1,7 @@
 import type {
   StoredWorldRuntimeState,
   WorldRuntimeChapterDraft,
+  WorldRuntimeEventImportance,
   WorldRuntimeEvent,
   WorldRuntimeEventType,
   WorldRuntimeLatestChapter,
@@ -22,6 +23,11 @@ const EVENT_TYPES = new Set<WorldRuntimeEventType>([
   "location",
   "secret",
   "other",
+]);
+const EVENT_IMPORTANCE_LEVELS = new Set<WorldRuntimeEventImportance>([
+  "normal",
+  "important",
+  "turning-point",
 ]);
 const CHINESE_DAYS = [
   "初一",
@@ -99,12 +105,40 @@ function readTags(value: unknown) {
   return value.filter((tag): tag is string => typeof tag === "string");
 }
 
+function readStringList(value: unknown) {
+  const rawValues = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[,，、\n]/)
+      : [];
+
+  return [
+    ...new Set(
+      rawValues
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ];
+}
+
 function normalizeEventType(value: unknown): WorldRuntimeEventType {
   if (typeof value === "string" && EVENT_TYPES.has(value as WorldRuntimeEventType)) {
     return value as WorldRuntimeEventType;
   }
 
   return "other";
+}
+
+function normalizeEventImportance(value: unknown): WorldRuntimeEventImportance {
+  if (
+    typeof value === "string" &&
+    EVENT_IMPORTANCE_LEVELS.has(value as WorldRuntimeEventImportance)
+  ) {
+    return value as WorldRuntimeEventImportance;
+  }
+
+  return "normal";
 }
 
 function createRuntimeId(prefix: string) {
@@ -133,6 +167,11 @@ function parseEvent(value: unknown): WorldRuntimeEvent | null {
     title,
     summary,
     type: normalizeEventType(value.type),
+    participants: readStringList(value.participants),
+    location: readString(value.location, "").trim(),
+    impact: readString(value.impact, "").trim(),
+    detail: readString(value.detail, "").trim() || summary,
+    importance: normalizeEventImportance(value.importance),
     createdAt: readString(value.createdAt, new Date().toISOString()),
   };
 }
@@ -376,6 +415,11 @@ export function appendWorldRuntimeEvent(
     title: string;
     summary: string;
     type?: WorldRuntimeEventType;
+    participants?: string[];
+    location?: string;
+    impact?: string;
+    detail?: string;
+    importance?: WorldRuntimeEventImportance;
   },
 ) {
   const title = input.title.trim();
@@ -391,7 +435,12 @@ export function appendWorldRuntimeEvent(
     date: state.currentWorldDate,
     title,
     summary,
-    type: input.type ?? "other",
+    type: normalizeEventType(input.type),
+    participants: readStringList(input.participants),
+    location: readString(input.location, "").trim(),
+    impact: readString(input.impact, "").trim(),
+    detail: readString(input.detail, "").trim() || summary,
+    importance: normalizeEventImportance(input.importance),
     createdAt,
   };
 
@@ -433,13 +482,33 @@ export function updateWorldRuntimeLatestChapter(
 
 export function getRecentWorldRuntimeEvents(events: WorldRuntimeEvent[]) {
   return [...events].sort((left, right) => {
-    const leftTime = Date.parse(left.createdAt || left.date);
-    const rightTime = Date.parse(right.createdAt || right.date);
+    const leftTime = getEventSortTime(left);
+    const rightTime = getEventSortTime(right);
 
-    if (Number.isNaN(leftTime) || Number.isNaN(rightTime)) {
-      return right.createdAt.localeCompare(left.createdAt);
+    if (leftTime !== null && rightTime !== null) {
+      return rightTime - leftTime;
     }
 
-    return rightTime - leftTime;
+    if (leftTime !== null) {
+      return -1;
+    }
+
+    if (rightTime !== null) {
+      return 1;
+    }
+
+    return right.createdAt.localeCompare(left.createdAt);
   });
+}
+
+function getEventSortTime(event: WorldRuntimeEvent) {
+  const createdAtTime = Date.parse(event.createdAt);
+
+  if (!Number.isNaN(createdAtTime)) {
+    return createdAtTime;
+  }
+
+  const dateTime = Date.parse(event.date);
+
+  return Number.isNaN(dateTime) ? null : dateTime;
 }

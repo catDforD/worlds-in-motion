@@ -6,12 +6,22 @@ export type WorldRuntimeEventType =
   | "secret"
   | "other";
 
+export type WorldRuntimeEventImportance =
+  | "normal"
+  | "important"
+  | "turning-point";
+
 export type WorldRuntimeEvent = {
   id: string;
   date: string;
   title: string;
   summary: string;
   type: WorldRuntimeEventType;
+  participants: string[];
+  location: string;
+  impact: string;
+  detail: string;
+  importance: WorldRuntimeEventImportance;
   createdAt: string;
 };
 

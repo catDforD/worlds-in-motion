@@ -5,10 +5,12 @@
 ## 功能概览
 
 - 工作台首页：展示世界概览、运行状态、近期事件、最新章节、活跃角色、紧张关系、秘密和趋势。
+- 事件日志：通过 `/events` 查看 active world 的完整事件账本，按最新创建时间倒序展示事件列表和详情。
 - 新建世界：通过 `/worlds/new` 填写世界名称、类型、背景、规则、叙事风格和初始冲突。
 - 世界设定编辑：在首页点击“世界设定”，编辑 active world 的世界背景、规则、风格偏好、禁止事项和核心矛盾。
 - 世界库与切换：创建页会新增本地世界记录并设为 active world；工作台顶部可切换已有世界。
 - 本地持久化：`localStorage` 保存 `worlds-in-motion.world-library.v1` 世界库、active world ID，以及按 `worldId` 隔离的世界设定、内容种子和运行记录；刷新后恢复当前世界，不同世界互不覆盖。
+- 本地事件字段：运行记录中的事件保存标题、摘要、类型、世界时间、创建时间，并可选保存参与角色、地点、影响、详情和重要性；旧事件缺少这些扩展字段时仍可展示。
 - 纯前端原型：当前不会发起后端请求，也不会触发数据库写入或 Agent 运行。
 
 ## 技术栈
@@ -63,6 +65,12 @@ npm run dev
 2. 刷新首页，确认 active world、世界名称、背景、标签、内容种子和运行记录仍然保留。
 3. 如需重置演示数据，可在浏览器开发者工具中清除本站的 `localStorage`。
 
+### 5. 查看事件日志
+
+1. 在首页“近期事件”模块记录事件，可只填写标题和摘要，也可补充参与角色、地点、影响、详情和重要性。
+2. 点击“查看全部”或侧栏“事件”进入 `/events`。
+3. 确认页面只展示当前 active world 的事件，并可在左侧列表切换右侧详情。
+
 ## 常用命令
 
 ```bash
@@ -76,6 +84,7 @@ npm run build
 ## 页面入口
 
 - `/`：水墨风世界工作台
+- `/events`：active world 事件日志
 - `/worlds/new`：新建世界表单
 
 ## 目录结构
@@ -100,6 +109,7 @@ openspec/
 - 新建世界相关类型和选项位于 `src/types/world-creation.ts` 与 `src/lib/world-creation.ts`。
 - 世界库、active world 和旧单世界数据迁移逻辑位于 `src/lib/world-library.ts`。
 - 世界设定、内容种子和运行记录的按 `worldId` 读写逻辑分别位于 `src/lib/world-settings.ts`、`src/lib/world-seed-assets.ts` 和 `src/lib/world-runtime.ts`。
+- 事件日志页面位于 `src/app/events/page.tsx`，主要界面组件位于 `src/components/events/world-event-log.tsx`。
 - 世界设定编辑器集成在 `src/components/dashboard/ink-dashboard.tsx`。
 
 ## 回滚

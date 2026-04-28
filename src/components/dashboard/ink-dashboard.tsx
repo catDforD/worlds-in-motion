@@ -91,6 +91,7 @@ import type {
   WorldInfo,
 } from "@/types/dashboard";
 import type {
+  WorldRuntimeEventImportance,
   WorldRuntimeEventType,
   WorldRuntimeState,
 } from "@/types/world-runtime";
@@ -206,8 +207,28 @@ const runtimeEventTypeOptions: Array<{
   { value: "other", label: "其他" },
 ];
 
+const runtimeEventImportanceOptions: Array<{
+  value: WorldRuntimeEventImportance;
+  label: string;
+}> = [
+  { value: "normal", label: "普通" },
+  { value: "important", label: "重要" },
+  { value: "turning-point", label: "转折" },
+];
+
 function getAvatarSrc(name: string) {
   return avatarSrcByName.get(name) ?? dashboardData.assets.writer;
+}
+
+function splitEventParticipants(value: string) {
+  return [
+    ...new Set(
+      value
+        .split(/[,，、\n]/)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ];
 }
 
 function clampProgress(value: number) {
@@ -249,7 +270,7 @@ function deriveRuntimeEvents(runtime: WorldRuntimeState): TimelineEvent[] {
       date: event.date,
       title: event.title,
       description: event.summary,
-      participants: [],
+      participants: event.participants,
     }));
 }
 
@@ -291,17 +312,21 @@ function Sidebar() {
           <PlusCircle aria-hidden="true" className="size-5" />
           <span>新建世界</span>
         </Link>
-        {dashboardData.navItems.map((item) => (
-          <a
-            href="#"
-            aria-current={item.active ? "page" : undefined}
-            className="sidebar-link"
-            key={item.label}
-          >
-            <DashboardIcon icon={item.icon} className="size-5" />
-            <span>{item.label}</span>
-          </a>
-        ))}
+        {dashboardData.navItems.map((item) => {
+          const href = item.label === "事件" ? "/events" : "#";
+
+          return (
+            <Link
+              href={href}
+              aria-current={item.active ? "page" : undefined}
+              className="sidebar-link"
+              key={item.label}
+            >
+              <DashboardIcon icon={item.icon} className="size-5" />
+              <span>{item.label}</span>
+            </Link>
+          );
+        })}
       </nav>
 
       <div className="sidebar-footer">
@@ -1261,16 +1286,36 @@ function EventsPanel({
     title: string;
     summary: string;
     type: WorldRuntimeEventType;
+    participants?: string[];
+    location?: string;
+    impact?: string;
+    detail?: string;
+    importance?: WorldRuntimeEventImportance;
   }) => boolean;
 }) {
   const [title, setTitle] = useState("");
   const [summary, setSummary] = useState("");
   const [type, setType] = useState<WorldRuntimeEventType>("plot");
+  const [importance, setImportance] =
+    useState<WorldRuntimeEventImportance>("normal");
+  const [participants, setParticipants] = useState("");
+  const [location, setLocation] = useState("");
+  const [impact, setImpact] = useState("");
+  const [detail, setDetail] = useState("");
   const [error, setError] = useState("");
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const saved = onRecordEvent({ title, summary, type });
+    const saved = onRecordEvent({
+      title,
+      summary,
+      type,
+      participants: splitEventParticipants(participants),
+      location,
+      impact,
+      detail,
+      importance,
+    });
 
     if (!saved) {
       setError("标题和摘要都需要填写。");
@@ -1280,6 +1325,11 @@ function EventsPanel({
     setTitle("");
     setSummary("");
     setType("plot");
+    setImportance("normal");
+    setParticipants("");
+    setLocation("");
+    setImpact("");
+    setDetail("");
     setError("");
   }
 
@@ -1287,7 +1337,7 @@ function EventsPanel({
     <section className="ink-panel content-panel">
       <div className="section-top">
         <h2>近期事件</h2>
-        <a href="#">查看全部</a>
+        <Link href="/events">查看全部</Link>
       </div>
       <form className="event-entry" onSubmit={handleSubmit}>
         <div className="event-entry-grid">
@@ -1314,12 +1364,60 @@ function EventsPanel({
               ))}
             </select>
           </label>
+          <label>
+            <span>重要性</span>
+            <select
+              value={importance}
+              onChange={(event) =>
+                setImportance(event.target.value as WorldRuntimeEventImportance)
+              }
+            >
+              {runtimeEventImportanceOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="event-summary-field">
             <span>摘要</span>
             <textarea
               value={summary}
               onChange={(event) => setSummary(event.target.value)}
               placeholder="写下这件事发生了什么，以及它为什么重要。"
+              rows={2}
+            />
+          </label>
+          <label>
+            <span>参与角色</span>
+            <input
+              value={participants}
+              onChange={(event) => setParticipants(event.target.value)}
+              placeholder="用顿号分隔，可留空"
+            />
+          </label>
+          <label>
+            <span>地点</span>
+            <input
+              value={location}
+              onChange={(event) => setLocation(event.target.value)}
+              placeholder="未记录地点"
+            />
+          </label>
+          <label className="event-summary-field">
+            <span>事件影响</span>
+            <input
+              value={impact}
+              onChange={(event) => setImpact(event.target.value)}
+              placeholder="可留空，稍后在日志中回看"
+            />
+          </label>
+          <label className="event-summary-field">
+            <span>详情</span>
+            <textarea
+              value={detail}
+              onChange={(event) => setDetail(event.target.value)}
+              placeholder="可选补充更完整的事实底稿；留空时使用摘要。"
               rows={2}
             />
           </label>
@@ -1725,6 +1823,11 @@ export function InkDashboard() {
     title: string;
     summary: string;
     type: WorldRuntimeEventType;
+    participants?: string[];
+    location?: string;
+    impact?: string;
+    detail?: string;
+    importance?: WorldRuntimeEventImportance;
   }) {
     if (!activeWorldId) {
       return false;
