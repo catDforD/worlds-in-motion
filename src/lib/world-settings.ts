@@ -7,7 +7,8 @@ import { getWorldTypeLabel } from "./world-creation";
 export const WORLD_SETTINGS_STORAGE_KEY = "worlds-in-motion.world-settings.v1";
 
 const WORLD_SETTINGS_CHANGED_EVENT = "worlds-in-motion:world-settings-changed";
-const STORAGE_VERSION = 1;
+const LEGACY_STORAGE_VERSION = 1;
+const STORAGE_VERSION = 2;
 
 function isStringRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -17,7 +18,43 @@ function readStringField(source: Record<string, unknown>, field: keyof WorldSett
   return typeof source[field] === "string" ? source[field] : null;
 }
 
-export function parseStoredWorldSettings(value: string | null): WorldSettings | null {
+function parseWorldSettingsValue(value: unknown): WorldSettings | null {
+  if (!isStringRecord(value)) {
+    return null;
+  }
+
+  const worldName = readStringField(value, "worldName");
+  const worldType = readStringField(value, "worldType");
+  const background = readStringField(value, "background");
+  const worldRules = readStringField(value, "worldRules");
+  const stylePreferences = readStringField(value, "stylePreferences");
+  const prohibitedContent = readStringField(value, "prohibitedContent");
+  const coreConflict = readStringField(value, "coreConflict");
+
+  if (
+    worldName === null ||
+    worldType === null ||
+    background === null ||
+    worldRules === null ||
+    stylePreferences === null ||
+    prohibitedContent === null ||
+    coreConflict === null
+  ) {
+    return null;
+  }
+
+  return {
+    worldName,
+    worldType,
+    background,
+    worldRules,
+    stylePreferences,
+    prohibitedContent,
+    coreConflict,
+  };
+}
+
+function parseStoredWorldSettingsMap(value: string | null) {
   if (!value) {
     return null;
   }
@@ -29,43 +66,53 @@ export function parseStoredWorldSettings(value: string | null): WorldSettings | 
       return null;
     }
 
-    const settingsValue = parsed.settings;
-    if (!isStringRecord(settingsValue)) {
+    const byWorldIdValue = parsed.byWorldId;
+    if (!isStringRecord(byWorldIdValue)) {
       return null;
     }
 
-    const worldName = readStringField(settingsValue, "worldName");
-    const worldType = readStringField(settingsValue, "worldType");
-    const background = readStringField(settingsValue, "background");
-    const worldRules = readStringField(settingsValue, "worldRules");
-    const stylePreferences = readStringField(settingsValue, "stylePreferences");
-    const prohibitedContent = readStringField(settingsValue, "prohibitedContent");
-    const coreConflict = readStringField(settingsValue, "coreConflict");
+    const byWorldId: Record<string, WorldSettings> = {};
+    for (const [worldId, settingsValue] of Object.entries(byWorldIdValue)) {
+      const parsedSettings = parseWorldSettingsValue(settingsValue);
 
-    if (
-      worldName === null ||
-      worldType === null ||
-      background === null ||
-      worldRules === null ||
-      stylePreferences === null ||
-      prohibitedContent === null ||
-      coreConflict === null
-    ) {
-      return null;
+      if (parsedSettings) {
+        byWorldId[worldId] = parsedSettings;
+      }
     }
 
-    return {
-      worldName,
-      worldType,
-      background,
-      worldRules,
-      stylePreferences,
-      prohibitedContent,
-      coreConflict,
-    };
+    return byWorldId;
   } catch {
     return null;
   }
+}
+
+export function parseLegacyStoredWorldSettings(value: string | null): WorldSettings | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+
+    if (!isStringRecord(parsed) || parsed.version !== LEGACY_STORAGE_VERSION) {
+      return null;
+    }
+
+    return parseWorldSettingsValue(parsed.settings);
+  } catch {
+    return null;
+  }
+}
+
+export function parseStoredWorldSettings(
+  value: string | null,
+  worldId: string | null,
+): WorldSettings | null {
+  if (!worldId) {
+    return null;
+  }
+
+  return parseStoredWorldSettingsMap(value)?.[worldId] ?? null;
 }
 
 export function getWorldSettingsSnapshot() {
@@ -76,8 +123,8 @@ export function getWorldSettingsSnapshot() {
   return window.localStorage.getItem(WORLD_SETTINGS_STORAGE_KEY);
 }
 
-export function getStoredWorldSettings() {
-  return parseStoredWorldSettings(getWorldSettingsSnapshot());
+export function getStoredWorldSettings(worldId: string | null) {
+  return parseStoredWorldSettings(getWorldSettingsSnapshot(), worldId);
 }
 
 export function subscribeToWorldSettings(callback: () => void) {
@@ -100,14 +147,18 @@ export function subscribeToWorldSettings(callback: () => void) {
   };
 }
 
-export function saveWorldSettings(settings: WorldSettings) {
+export function saveWorldSettings(worldId: string, settings: WorldSettings) {
   if (typeof window === "undefined") {
     return;
   }
 
+  const byWorldId = parseStoredWorldSettingsMap(getWorldSettingsSnapshot()) ?? {};
   const payload: StoredWorldSettings = {
     version: STORAGE_VERSION,
-    settings,
+    byWorldId: {
+      ...byWorldId,
+      [worldId]: settings,
+    },
   };
 
   window.localStorage.setItem(WORLD_SETTINGS_STORAGE_KEY, JSON.stringify(payload));

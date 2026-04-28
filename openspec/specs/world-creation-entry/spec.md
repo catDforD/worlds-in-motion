@@ -1,7 +1,7 @@
 # world-creation-entry Specification
 
 ## Purpose
-TBD - created by archiving change add-world-creation-entry. Update Purpose after archive.
+定义独立的新建世界入口和表单体验，用于在纯前端原型中创建本地世界记录、初始化基础设定，并进入工作台继续编辑和运行该世界。
 ## Requirements
 ### Requirement: 独立创建世界页面
 系统 SHALL 提供独立的创建世界页面，用于承载用户创建第一个或新的叙事世界。
@@ -104,17 +104,22 @@ TBD - created by archiving change add-world-creation-entry. Update Purpose after
 - **THEN** 系统 MUST 为缺失内容显示可读占位信息，而不是空白或布局塌陷
 
 ### Requirement: 创建后进入工作台
-系统 SHALL 在首版创建世界成功后进入现有工作台，并展示用户创建的世界基本信息。
+系统 SHALL 在首版创建世界成功后创建本地世界库记录，将该世界设为 active，并进入现有工作台展示该世界基本信息。
 
 #### Scenario: 点击创建世界进入工作台
 - **GIVEN** 用户已填写创建世界表单所需信息
 - **WHEN** 用户点击“创建世界”
-- **THEN** 系统 MUST 导航到现有工作台视图
+- **THEN** 系统 MUST 创建一条新的本地世界记录，将其 `worldId` 设为 active world ID，并导航到现有工作台视图
 
 #### Scenario: 工作台展示新世界信息
 - **GIVEN** 用户从创建世界页面完成创建并进入工作台
 - **WHEN** 工作台顶部世界横幅渲染完成
-- **THEN** 系统 MUST 显示用户填写的世界名称、背景简介和世界类型标签
+- **THEN** 系统 MUST 显示 active world 对应的世界名称、背景简介和世界类型标签
+
+#### Scenario: 创建新世界不覆盖旧世界
+- **GIVEN** 世界库中已经存在一个世界及其设定、内容种子或运行记录
+- **WHEN** 用户完成另一个世界的创建
+- **THEN** 系统 MUST 保留旧世界记录及其按 `worldId` 作用域保存的状态
 
 #### Scenario: 不触发后端持久化
 - **GIVEN** 用户点击“创建世界”

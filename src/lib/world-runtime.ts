@@ -11,7 +11,8 @@ export const WORLD_RUNTIME_STORAGE_KEY =
   "worlds-in-motion.world-runtime-state.v1";
 
 const WORLD_RUNTIME_CHANGED_EVENT = "worlds-in-motion:world-runtime-changed";
-const STORAGE_VERSION = 1;
+const LEGACY_STORAGE_VERSION = 1;
+const STORAGE_VERSION = 2;
 const DEFAULT_WORLD_DATE = "永泰二十三年 三月初八　辰时";
 const DEFAULT_RUN_DAYS = 12;
 const EVENT_TYPES = new Set<WorldRuntimeEventType>([
@@ -205,26 +206,67 @@ export function normalizeWorldRuntimeState(
   };
 }
 
-export function parseStoredWorldRuntimeState(value: string | null) {
+function parseStoredWorldRuntimeMap(value: string | null) {
   if (!value) {
-    return defaultWorldRuntimeState;
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+
+    if (!isRecord(parsed) || parsed.version !== STORAGE_VERSION) {
+      return null;
+    }
+
+    const byWorldIdValue = parsed.byWorldId;
+    if (!isRecord(byWorldIdValue)) {
+      return null;
+    }
+
+    const byWorldId: Record<string, WorldRuntimeState> = {};
+    for (const [worldId, stateValue] of Object.entries(byWorldIdValue)) {
+      if (isRecord(stateValue)) {
+        byWorldId[worldId] = normalizeWorldRuntimeState(stateValue);
+      }
+    }
+
+    return byWorldId;
+  } catch {
+    return null;
+  }
+}
+
+export function parseLegacyStoredWorldRuntimeState(value: string | null) {
+  if (!value) {
+    return null;
   }
 
   try {
     const parsed = JSON.parse(value) as unknown;
 
     if (!isRecord(parsed)) {
-      return defaultWorldRuntimeState;
+      return null;
     }
 
-    if (parsed.version === STORAGE_VERSION && isRecord(parsed.state)) {
+    if (parsed.version === LEGACY_STORAGE_VERSION && isRecord(parsed.state)) {
       return normalizeWorldRuntimeState(parsed.state);
     }
 
     return normalizeWorldRuntimeState(parsed);
   } catch {
+    return null;
+  }
+}
+
+export function parseStoredWorldRuntimeState(
+  value: string | null,
+  worldId: string | null,
+) {
+  if (!worldId) {
     return defaultWorldRuntimeState;
   }
+
+  return parseStoredWorldRuntimeMap(value)?.[worldId] ?? defaultWorldRuntimeState;
 }
 
 export function getWorldRuntimeSnapshot() {
@@ -255,21 +297,29 @@ export function subscribeToWorldRuntime(callback: () => void) {
   };
 }
 
-export function hasStoredWorldRuntime(value: string | null) {
-  return Boolean(value);
+export function hasStoredWorldRuntime(value: string | null, worldId: string | null) {
+  if (!worldId) {
+    return false;
+  }
+
+  return Boolean(parseStoredWorldRuntimeMap(value)?.[worldId]);
 }
 
-export function saveWorldRuntimeState(state: WorldRuntimeState) {
+export function saveWorldRuntimeState(worldId: string, state: WorldRuntimeState) {
   if (typeof window === "undefined") {
     return;
   }
 
+  const byWorldId = parseStoredWorldRuntimeMap(getWorldRuntimeSnapshot()) ?? {};
   const payload: StoredWorldRuntimeState = {
     version: STORAGE_VERSION,
-    state: normalizeWorldRuntimeState({
-      ...state,
-      updatedAt: new Date().toISOString(),
-    }),
+    byWorldId: {
+      ...byWorldId,
+      [worldId]: normalizeWorldRuntimeState({
+        ...state,
+        updatedAt: new Date().toISOString(),
+      }),
+    },
   };
 
   window.localStorage.setItem(WORLD_RUNTIME_STORAGE_KEY, JSON.stringify(payload));
@@ -277,11 +327,12 @@ export function saveWorldRuntimeState(state: WorldRuntimeState) {
 }
 
 export function updateWorldRuntimeState(
+  worldId: string,
   updater: (state: WorldRuntimeState) => WorldRuntimeState,
 ) {
-  const current = parseStoredWorldRuntimeState(getWorldRuntimeSnapshot());
+  const current = parseStoredWorldRuntimeState(getWorldRuntimeSnapshot(), worldId);
   const next = updater(current);
-  saveWorldRuntimeState(next);
+  saveWorldRuntimeState(worldId, next);
 
   return next;
 }
