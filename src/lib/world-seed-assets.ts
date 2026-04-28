@@ -13,7 +13,8 @@ export const WORLD_SEED_ASSETS_STORAGE_KEY =
 
 const WORLD_SEED_ASSETS_CHANGED_EVENT =
   "worlds-in-motion:world-seed-assets-changed";
-const STORAGE_VERSION = 1;
+const LEGACY_STORAGE_VERSION = 1;
+const STORAGE_VERSION = 2;
 const DEFAULT_TENSION = 50;
 
 export const emptyWorldSeedAssets: WorldSeedAssets = {
@@ -163,52 +164,95 @@ export function normalizeWorldSeedAssets(assets: WorldSeedAssets): WorldSeedAsse
   };
 }
 
-export function parseStoredWorldSeedAssets(value: string | null) {
+function parseWorldSeedAssetsValue(value: unknown) {
+  if (!isStringRecord(value)) {
+    return null;
+  }
+
+  const characters = parseSeedArray(value.characters, parseCharacterSeed);
+  const factions = parseSeedArray(value.factions, parseFactionSeed);
+  const locations = parseSeedArray(value.locations, parseLocationSeed);
+  const relationships = parseSeedArray(
+    value.relationships,
+    parseRelationshipSeed,
+  );
+
+  if (
+    characters === null ||
+    factions === null ||
+    locations === null ||
+    relationships === null
+  ) {
+    return null;
+  }
+
+  return {
+    characters,
+    factions,
+    locations,
+    relationships,
+  };
+}
+
+function parseStoredWorldSeedAssetsMap(value: string | null) {
   if (!value) {
-    return emptyWorldSeedAssets;
+    return null;
   }
 
   try {
     const parsed = JSON.parse(value) as unknown;
 
     if (!isStringRecord(parsed) || parsed.version !== STORAGE_VERSION) {
-      return emptyWorldSeedAssets;
+      return null;
     }
 
-    const assetsValue = parsed.assets;
-    if (!isStringRecord(assetsValue)) {
-      return emptyWorldSeedAssets;
+    const byWorldIdValue = parsed.byWorldId;
+    if (!isStringRecord(byWorldIdValue)) {
+      return null;
     }
 
-    const characters = parseSeedArray(
-      assetsValue.characters,
-      parseCharacterSeed,
-    );
-    const factions = parseSeedArray(assetsValue.factions, parseFactionSeed);
-    const locations = parseSeedArray(assetsValue.locations, parseLocationSeed);
-    const relationships = parseSeedArray(
-      assetsValue.relationships,
-      parseRelationshipSeed,
-    );
+    const byWorldId: Record<string, WorldSeedAssets> = {};
+    for (const [worldId, assetsValue] of Object.entries(byWorldIdValue)) {
+      const parsedAssets = parseWorldSeedAssetsValue(assetsValue);
 
-    if (
-      characters === null ||
-      factions === null ||
-      locations === null ||
-      relationships === null
-    ) {
-      return emptyWorldSeedAssets;
+      if (parsedAssets) {
+        byWorldId[worldId] = parsedAssets;
+      }
     }
 
-    return {
-      characters,
-      factions,
-      locations,
-      relationships,
-    };
+    return byWorldId;
   } catch {
+    return null;
+  }
+}
+
+export function parseLegacyStoredWorldSeedAssets(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+
+    if (!isStringRecord(parsed) || parsed.version !== LEGACY_STORAGE_VERSION) {
+      return null;
+    }
+
+    return parseWorldSeedAssetsValue(parsed.assets);
+  } catch {
+    return null;
+  }
+}
+
+export function parseStoredWorldSeedAssets(
+  value: string | null,
+  worldId: string | null,
+) {
+  if (!worldId) {
     return emptyWorldSeedAssets;
   }
+
+  return parseStoredWorldSeedAssetsMap(value)?.[worldId] ?? emptyWorldSeedAssets;
 }
 
 export function getWorldSeedAssetsSnapshot() {
@@ -219,8 +263,8 @@ export function getWorldSeedAssetsSnapshot() {
   return window.localStorage.getItem(WORLD_SEED_ASSETS_STORAGE_KEY);
 }
 
-export function getStoredWorldSeedAssets() {
-  return parseStoredWorldSeedAssets(getWorldSeedAssetsSnapshot());
+export function getStoredWorldSeedAssets(worldId: string | null) {
+  return parseStoredWorldSeedAssets(getWorldSeedAssetsSnapshot(), worldId);
 }
 
 export function subscribeToWorldSeedAssets(callback: () => void) {
@@ -243,14 +287,18 @@ export function subscribeToWorldSeedAssets(callback: () => void) {
   };
 }
 
-export function saveWorldSeedAssets(assets: WorldSeedAssets) {
+export function saveWorldSeedAssets(worldId: string, assets: WorldSeedAssets) {
   if (typeof window === "undefined") {
     return;
   }
 
+  const byWorldId = parseStoredWorldSeedAssetsMap(getWorldSeedAssetsSnapshot()) ?? {};
   const payload: StoredWorldSeedAssets = {
     version: STORAGE_VERSION,
-    assets: normalizeWorldSeedAssets(assets),
+    byWorldId: {
+      ...byWorldId,
+      [worldId]: normalizeWorldSeedAssets(assets),
+    },
   };
 
   window.localStorage.setItem(

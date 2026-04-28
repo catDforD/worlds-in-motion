@@ -19,8 +19,11 @@ import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
+  addWorldRecord,
+  createWorldRecord,
+} from "@/lib/world-library";
+import {
   getWorldTypeLabel,
-  WORLD_CREATION_STORAGE_KEY,
   worldTypeOptions,
 } from "@/lib/world-creation";
 import {
@@ -99,8 +102,15 @@ export function CreateWorldPage() {
       return;
     }
 
-    window.sessionStorage.setItem(WORLD_CREATION_STORAGE_KEY, JSON.stringify(form));
-    saveWorldSettings(worldCreationToWorldSettings(form));
+    const world = createWorldRecord({
+      name: form.worldName,
+      type: typeLabel,
+      description: form.background,
+      tags: form.narrativeStyle ? [form.narrativeStyle] : [],
+    });
+    const { world: savedWorld } = addWorldRecord(world);
+
+    saveWorldSettings(savedWorld.id, worldCreationToWorldSettings(form));
     router.push("/");
   }
 

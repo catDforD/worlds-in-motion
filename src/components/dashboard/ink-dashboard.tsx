@@ -41,6 +41,15 @@ import { useMemo, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { dashboardData } from "@/lib/dashboard-data";
 import {
+  getActiveWorld,
+  getWorldLibrarySnapshot,
+  parseStoredWorldLibrary,
+  setActiveWorldId,
+  subscribeToWorldLibrary,
+  worldRecordToWorldInfo,
+  worldRecordToWorldSettings,
+} from "@/lib/world-library";
+import {
   createSeedId,
   deriveSeedCharacters,
   deriveSeedRelationships,
@@ -63,15 +72,10 @@ import {
   toggleWorldRuntimePaused,
 } from "@/lib/world-runtime";
 import {
-  parseStoredCreatedWorld,
-  WORLD_CREATION_STORAGE_KEY,
-} from "@/lib/world-creation";
-import {
   getWorldSettingsSnapshot,
   parseStoredWorldSettings,
   saveWorldSettings,
   subscribeToWorldSettings,
-  worldCreationToWorldSettings,
   worldInfoToWorldSettings,
   worldSettingsToWorldInfo,
 } from "@/lib/world-settings";
@@ -98,6 +102,7 @@ import type {
   WorldSeedRelationship,
 } from "@/types/world-seed-assets";
 import type { WorldSettings } from "@/types/world-settings";
+import type { WorldLibraryState, WorldRecord } from "@/types/world-library";
 
 const iconMap: Record<DashboardIconKey, LucideIcon> = {
   world: Globe,
@@ -183,6 +188,12 @@ const avatarSrcByName = new Map(
   dashboardData.characters.map((character) => [character.name, character.imageSrc]),
 );
 
+const emptyWorldLibrary: WorldLibraryState = {
+  version: 1,
+  activeWorldId: null,
+  worlds: [],
+};
+
 const runtimeEventTypeOptions: Array<{
   value: WorldRuntimeEventType;
   label: string;
@@ -194,20 +205,6 @@ const runtimeEventTypeOptions: Array<{
   { value: "secret", label: "秘密" },
   { value: "other", label: "其他" },
 ];
-
-function subscribeToCreatedWorld(callback: () => void) {
-  window.addEventListener("storage", callback);
-
-  return () => window.removeEventListener("storage", callback);
-}
-
-function getCreatedWorldValue() {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  return window.sessionStorage.getItem(WORLD_CREATION_STORAGE_KEY);
-}
 
 function getAvatarSrc(name: string) {
   return avatarSrcByName.get(name) ?? dashboardData.assets.writer;
@@ -331,14 +328,52 @@ function Sidebar() {
   );
 }
 
+function WorldSwitcher({
+  worlds,
+  activeWorldId,
+  onSwitchWorld,
+}: {
+  worlds: WorldRecord[];
+  activeWorldId: string | null;
+  onSwitchWorld: (worldId: string) => void;
+}) {
+  if (worlds.length === 0) {
+    return null;
+  }
+
+  return (
+    <label className="world-switcher">
+      <Globe aria-hidden="true" className="size-4" />
+      <span>当前世界</span>
+      <select
+        value={activeWorldId ?? worlds[0]?.id ?? ""}
+        onChange={(event) => onSwitchWorld(event.target.value)}
+        aria-label="切换当前世界"
+      >
+        {worlds.map((world) => (
+          <option value={world.id} key={world.id}>
+            {world.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 function WorldBanner({
   world,
+  worlds,
+  activeWorldId,
   onEditSettings,
   onEditSeeds,
+  onSwitchWorld,
 }: {
   world: WorldInfo;
+  worlds: WorldRecord[];
+  activeWorldId: string | null;
   onEditSettings: () => void;
   onEditSeeds: () => void;
+  onSwitchWorld: (worldId: string) => void;
 }) {
   return (
     <section className="world-banner">
@@ -363,6 +398,11 @@ function WorldBanner({
             <span key={tag.label}>{tag.label}</span>
           ))}
         </div>
+        <WorldSwitcher
+          worlds={worlds}
+          activeWorldId={activeWorldId}
+          onSwitchWorld={onSwitchWorld}
+        />
       </div>
       <div className="banner-actions" aria-label="世界操作">
         <Button
@@ -448,9 +488,11 @@ const settingsFields: Array<{
 function WorldSettingsEditor({
   settings,
   onClose,
+  onSave,
 }: {
   settings: WorldSettings;
   onClose: () => void;
+  onSave: (settings: WorldSettings) => void;
 }) {
   const [form, setForm] = useState(settings);
 
@@ -463,7 +505,7 @@ function WorldSettingsEditor({
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    saveWorldSettings(form);
+    onSave(form);
     onClose();
   }
 
@@ -639,9 +681,11 @@ function newRelationshipSeed(): WorldSeedRelationship {
 function SeedAssetsEditor({
   assets,
   onClose,
+  onSave,
 }: {
   assets: WorldSeedAssets;
   onClose: () => void;
+  onSave: (assets: WorldSeedAssets) => void;
 }) {
   const [form, setForm] = useState(() => normalizeWorldSeedAssets(assets));
 
@@ -701,7 +745,7 @@ function SeedAssetsEditor({
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    saveWorldSeedAssets(form);
+    onSave(form);
     onClose();
   }
 
@@ -1539,6 +1583,11 @@ function RightRail({
 export function InkDashboard() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [seedAssetsOpen, setSeedAssetsOpen] = useState(false);
+  const worldLibraryValue = useSyncExternalStore(
+    subscribeToWorldLibrary,
+    getWorldLibrarySnapshot,
+    () => null,
+  );
   const worldSettingsValue = useSyncExternalStore(
     subscribeToWorldSettings,
     getWorldSettingsSnapshot,
@@ -1549,52 +1598,53 @@ export function InkDashboard() {
     getWorldSeedAssetsSnapshot,
     () => null,
   );
-  const createdWorldValue = useSyncExternalStore(
-    subscribeToCreatedWorld,
-    getCreatedWorldValue,
-    () => null,
-  );
   const runtimeValue = useSyncExternalStore(
     subscribeToWorldRuntime,
     getWorldRuntimeSnapshot,
     () => null,
   );
-  const createdWorld = useMemo(
-    () => parseStoredCreatedWorld(createdWorldValue),
-    [createdWorldValue],
+  const worldLibrary = useMemo(
+    () => parseStoredWorldLibrary(worldLibraryValue) ?? emptyWorldLibrary,
+    [worldLibraryValue],
   );
+  const activeWorld = useMemo(
+    () => getActiveWorld(worldLibrary),
+    [worldLibrary],
+  );
+  const activeWorldId = activeWorld?.id ?? worldLibrary.activeWorldId;
   const storedSettings = useMemo(
-    () => parseStoredWorldSettings(worldSettingsValue),
-    [worldSettingsValue],
+    () => parseStoredWorldSettings(worldSettingsValue, activeWorldId),
+    [activeWorldId, worldSettingsValue],
   );
   const seedAssets = useMemo(
-    () => parseStoredWorldSeedAssets(seedAssetsValue),
-    [seedAssetsValue],
+    () => parseStoredWorldSeedAssets(seedAssetsValue, activeWorldId),
+    [activeWorldId, seedAssetsValue],
   );
   const runtimeState = useMemo(
-    () => parseStoredWorldRuntimeState(runtimeValue),
-    [runtimeValue],
+    () => parseStoredWorldRuntimeState(runtimeValue, activeWorldId),
+    [activeWorldId, runtimeValue],
   );
-  const hasRuntimeRecord = hasStoredWorldRuntime(runtimeValue);
+  const hasRuntimeRecord =
+    Boolean(activeWorldId) || hasStoredWorldRuntime(runtimeValue, activeWorldId);
   const editableSettings = useMemo(() => {
     if (storedSettings) {
       return storedSettings;
     }
 
-    if (createdWorld) {
-      return worldCreationToWorldSettings(createdWorld);
+    if (activeWorld) {
+      return worldRecordToWorldSettings(activeWorld);
     }
 
     return worldInfoToWorldSettings(dashboardData.world);
-  }, [createdWorld, storedSettings]);
+  }, [activeWorld, storedSettings]);
   const world = useMemo(
     () =>
       storedSettings
         ? worldSettingsToWorldInfo(storedSettings)
-        : createdWorld
-          ? worldSettingsToWorldInfo(worldCreationToWorldSettings(createdWorld))
+        : activeWorld
+          ? worldRecordToWorldInfo(activeWorld)
           : dashboardData.world,
-    [createdWorld, storedSettings],
+    [activeWorld, storedSettings],
   );
   const derivedStats = useMemo(
     () =>
@@ -1639,12 +1689,36 @@ export function InkDashboard() {
     () => deriveSeedRelationships(seedAssets, dashboardData.relationships),
     [seedAssets],
   );
+  function handleSaveSettings(settings: WorldSettings) {
+    if (!activeWorldId) {
+      return;
+    }
+
+    saveWorldSettings(activeWorldId, settings);
+  }
+
+  function handleSaveSeedAssets(assets: WorldSeedAssets) {
+    if (!activeWorldId) {
+      return;
+    }
+
+    saveWorldSeedAssets(activeWorldId, assets);
+  }
+
   function handleTogglePaused() {
-    saveWorldRuntimeState(toggleWorldRuntimePaused(runtimeState));
+    if (!activeWorldId) {
+      return;
+    }
+
+    saveWorldRuntimeState(activeWorldId, toggleWorldRuntimePaused(runtimeState));
   }
 
   function handleAdvanceDay() {
-    saveWorldRuntimeState(advanceWorldRuntimeOneDay(runtimeState));
+    if (!activeWorldId) {
+      return;
+    }
+
+    saveWorldRuntimeState(activeWorldId, advanceWorldRuntimeOneDay(runtimeState));
   }
 
   function handleRecordEvent(input: {
@@ -1652,13 +1726,17 @@ export function InkDashboard() {
     summary: string;
     type: WorldRuntimeEventType;
   }) {
+    if (!activeWorldId) {
+      return false;
+    }
+
     const next = appendWorldRuntimeEvent(runtimeState, input);
 
     if (!next) {
       return false;
     }
 
-    saveWorldRuntimeState(next);
+    saveWorldRuntimeState(activeWorldId, next);
     return true;
   }
 
@@ -1668,8 +1746,11 @@ export function InkDashboard() {
       <div className="dashboard-main">
         <WorldBanner
           world={world}
+          worlds={worldLibrary.worlds}
+          activeWorldId={activeWorldId}
           onEditSettings={() => setSettingsOpen(true)}
           onEditSeeds={() => setSeedAssetsOpen(true)}
+          onSwitchWorld={setActiveWorldId}
         />
         <div className="dashboard-grid">
           <div className="main-column">
@@ -1695,12 +1776,14 @@ export function InkDashboard() {
         <WorldSettingsEditor
           settings={editableSettings}
           onClose={() => setSettingsOpen(false)}
+          onSave={handleSaveSettings}
         />
       ) : null}
       {seedAssetsOpen ? (
         <SeedAssetsEditor
           assets={seedAssets}
           onClose={() => setSeedAssetsOpen(false)}
+          onSave={handleSaveSeedAssets}
         />
       ) : null}
     </main>

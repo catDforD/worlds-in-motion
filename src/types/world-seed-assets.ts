@@ -38,6 +38,11 @@ export type WorldSeedAssets = {
 };
 
 export type StoredWorldSeedAssets = {
+  version: 2;
+  byWorldId: Record<string, WorldSeedAssets>;
+};
+
+export type LegacyStoredWorldSeedAssets = {
   version: 1;
   assets: WorldSeedAssets;
 };

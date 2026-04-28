@@ -41,6 +41,11 @@ export type WorldRuntimeState = {
 };
 
 export type StoredWorldRuntimeState = {
-  version: number;
+  version: 2;
+  byWorldId: Record<string, WorldRuntimeState>;
+};
+
+export type LegacyStoredWorldRuntimeState = {
+  version: 1;
   state: WorldRuntimeState;
 };

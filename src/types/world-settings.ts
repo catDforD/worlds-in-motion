@@ -9,6 +9,11 @@ export type WorldSettings = {
 };
 
 export type StoredWorldSettings = {
+  version: 2;
+  byWorldId: Record<string, WorldSettings>;
+};
+
+export type LegacyStoredWorldSettings = {
   version: 1;
   settings: WorldSettings;
 };
