@@ -61,12 +61,11 @@ import {
   subscribeToWorldSeedAssets,
 } from "@/lib/world-seed-assets";
 import {
-  advanceWorldRuntimeOneDay,
-  appendWorldRuntimeEvent,
   getRecentWorldRuntimeEvents,
   getWorldRuntimeSnapshot,
   hasStoredWorldRuntime,
   parseStoredWorldRuntimeState,
+  runWorldRuntimeOneDay,
   saveWorldRuntimeState,
   subscribeToWorldRuntime,
   toggleWorldRuntimePaused,
@@ -91,8 +90,8 @@ import type {
   WorldInfo,
 } from "@/types/dashboard";
 import type {
-  WorldRuntimeEventImportance,
-  WorldRuntimeEventType,
+  WorldRuntimeRunResult,
+  WorldRuntimeRunResultCategory,
   WorldRuntimeState,
 } from "@/types/world-runtime";
 import type {
@@ -195,40 +194,40 @@ const emptyWorldLibrary: WorldLibraryState = {
   worlds: [],
 };
 
-const runtimeEventTypeOptions: Array<{
-  value: WorldRuntimeEventType;
-  label: string;
+const runResultCategoryMeta: Array<{
+  key: WorldRuntimeRunResultCategory;
+  icon: DashboardIconKey;
+  getLabel: (count: number) => string;
 }> = [
-  { value: "plot", label: "剧情" },
-  { value: "character", label: "角色" },
-  { value: "faction", label: "势力" },
-  { value: "location", label: "地点" },
-  { value: "secret", label: "秘密" },
-  { value: "other", label: "其他" },
-];
-
-const runtimeEventImportanceOptions: Array<{
-  value: WorldRuntimeEventImportance;
-  label: string;
-}> = [
-  { value: "normal", label: "普通" },
-  { value: "important", label: "重要" },
-  { value: "turning-point", label: "转折" },
+  {
+    key: "events",
+    icon: "events",
+    getLabel: (count) => `今日发生了 ${count} 件事`,
+  },
+  {
+    key: "relationshipChanges",
+    icon: "network",
+    getLabel: (count) => `${count} 段关系发生变化`,
+  },
+  {
+    key: "secretsDiscovered",
+    icon: "secrets",
+    getLabel: (count) => `${count} 个秘密被发现`,
+  },
+  {
+    key: "goalChanges",
+    icon: "roles",
+    getLabel: (count) => `${count} 个角色目标改变`,
+  },
+  {
+    key: "storyDrafts",
+    icon: "book",
+    getLabel: (count) => `生成了 ${count} 段故事草稿`,
+  },
 ];
 
 function getAvatarSrc(name: string) {
   return avatarSrcByName.get(name) ?? dashboardData.assets.writer;
-}
-
-function splitEventParticipants(value: string) {
-  return [
-    ...new Set(
-      value
-        .split(/[,，、\n]/)
-        .map((item) => item.trim())
-        .filter(Boolean),
-    ),
-  ];
 }
 
 function clampProgress(value: number) {
@@ -261,7 +260,7 @@ function deriveRuntimeStats(
 
 function deriveRuntimeEvents(runtime: WorldRuntimeState): TimelineEvent[] {
   if (runtime.events.length === 0) {
-    return dashboardData.events;
+    return [];
   }
 
   return getRecentWorldRuntimeEvents(runtime.events)
@@ -313,7 +312,8 @@ function Sidebar() {
           <span>新建世界</span>
         </Link>
         {dashboardData.navItems.map((item) => {
-          const href = item.label === "事件" ? "/events" : "#";
+          const href =
+            item.label === "事件" ? "/events" : item.label === "故事" ? "/stories" : "#";
 
           return (
             <Link
@@ -1257,7 +1257,7 @@ function StatsAndRuntime({
                 type="button"
               >
                 <CalendarPlus aria-hidden="true" className="size-4" />
-                推进一日
+                运行一天
               </Button>
             </div>
           </div>
@@ -1277,180 +1277,48 @@ function StatsAndRuntime({
   );
 }
 
-function EventsPanel({
-  events,
-  onRecordEvent,
-}: {
-  events: TimelineEvent[];
-  onRecordEvent: (input: {
-    title: string;
-    summary: string;
-    type: WorldRuntimeEventType;
-    participants?: string[];
-    location?: string;
-    impact?: string;
-    detail?: string;
-    importance?: WorldRuntimeEventImportance;
-  }) => boolean;
-}) {
-  const [title, setTitle] = useState("");
-  const [summary, setSummary] = useState("");
-  const [type, setType] = useState<WorldRuntimeEventType>("plot");
-  const [importance, setImportance] =
-    useState<WorldRuntimeEventImportance>("normal");
-  const [participants, setParticipants] = useState("");
-  const [location, setLocation] = useState("");
-  const [impact, setImpact] = useState("");
-  const [detail, setDetail] = useState("");
-  const [error, setError] = useState("");
-
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const saved = onRecordEvent({
-      title,
-      summary,
-      type,
-      participants: splitEventParticipants(participants),
-      location,
-      impact,
-      detail,
-      importance,
-    });
-
-    if (!saved) {
-      setError("标题和摘要都需要填写。");
-      return;
-    }
-
-    setTitle("");
-    setSummary("");
-    setType("plot");
-    setImportance("normal");
-    setParticipants("");
-    setLocation("");
-    setImpact("");
-    setDetail("");
-    setError("");
-  }
-
+function EventsPanel({ events }: { events: TimelineEvent[] }) {
   return (
     <section className="ink-panel content-panel">
       <div className="section-top">
         <h2>近期事件</h2>
         <Link href="/events">查看全部</Link>
       </div>
-      <form className="event-entry" onSubmit={handleSubmit}>
-        <div className="event-entry-grid">
-          <label>
-            <span>事件标题</span>
-            <input
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder="例如：密会破局"
-            />
-          </label>
-          <label>
-            <span>类型</span>
-            <select
-              value={type}
-              onChange={(event) =>
-                setType(event.target.value as WorldRuntimeEventType)
-              }
-            >
-              {runtimeEventTypeOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>重要性</span>
-            <select
-              value={importance}
-              onChange={(event) =>
-                setImportance(event.target.value as WorldRuntimeEventImportance)
-              }
-            >
-              {runtimeEventImportanceOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="event-summary-field">
-            <span>摘要</span>
-            <textarea
-              value={summary}
-              onChange={(event) => setSummary(event.target.value)}
-              placeholder="写下这件事发生了什么，以及它为什么重要。"
-              rows={2}
-            />
-          </label>
-          <label>
-            <span>参与角色</span>
-            <input
-              value={participants}
-              onChange={(event) => setParticipants(event.target.value)}
-              placeholder="用顿号分隔，可留空"
-            />
-          </label>
-          <label>
-            <span>地点</span>
-            <input
-              value={location}
-              onChange={(event) => setLocation(event.target.value)}
-              placeholder="未记录地点"
-            />
-          </label>
-          <label className="event-summary-field">
-            <span>事件影响</span>
-            <input
-              value={impact}
-              onChange={(event) => setImpact(event.target.value)}
-              placeholder="可留空，稍后在日志中回看"
-            />
-          </label>
-          <label className="event-summary-field">
-            <span>详情</span>
-            <textarea
-              value={detail}
-              onChange={(event) => setDetail(event.target.value)}
-              placeholder="可选补充更完整的事实底稿；留空时使用摘要。"
-              rows={2}
-            />
-          </label>
+
+      {events.length > 0 ? (
+        <div className="event-list">
+          {events.map((event) => (
+            <article className="event-row" key={`${event.date}-${event.title}`}>
+              <time>{event.date}</time>
+              <div className="min-w-0">
+                <h3>{event.title}</h3>
+                <p>{event.description}</p>
+              </div>
+              <div className="participant-stack" aria-label="相关角色">
+                {event.participants.map((position, index) => (
+                  <Avatar
+                    key={`${event.title}-${position}-${index}`}
+                    name={position}
+                    src={getAvatarSrc(position)}
+                    size="sm"
+                  />
+                ))}
+              </div>
+            </article>
+          ))}
         </div>
-        <div className="event-entry-actions">
-          <span role="status">{error}</span>
-          <Button type="submit" className="ink-action" variant="outline" size="sm">
-            <Scroll aria-hidden="true" className="size-4" />
-            记录事件
-          </Button>
+      ) : (
+        <div className="event-preview-empty">
+          <Scroll aria-hidden="true" className="size-5" />
+          <div>
+            <h3>暂无近期事件</h3>
+            <p>事件日志页可记录第一条世界事件，并在这里显示最新预览。</p>
+          </div>
+          <Link href="/events" className="ink-action">
+            进入事件日志
+          </Link>
         </div>
-      </form>
-      <div className="event-list">
-        {events.map((event) => (
-          <article className="event-row" key={event.title}>
-            <time>{event.date}</time>
-            <div className="min-w-0">
-              <h3>{event.title}</h3>
-              <p>{event.description}</p>
-            </div>
-            <div className="participant-stack" aria-label="相关角色">
-              {event.participants.map((position, index) => (
-                <Avatar
-                  key={`${event.title}-${position}-${index}`}
-                  name={position}
-                  src={getAvatarSrc(position)}
-                  size="sm"
-                />
-              ))}
-            </div>
-          </article>
-        ))}
-      </div>
+      )}
     </section>
   );
 }
@@ -1460,7 +1328,7 @@ function ChapterPanel({ chapter }: { chapter: StoryChapter }) {
     <section className="ink-panel content-panel">
       <div className="section-top">
         <h2>最新故事章节</h2>
-        <a href="#">查看全部</a>
+        <Link href="/stories">查看全部</Link>
       </div>
       <div className="chapter-layout">
         <div className="chapter-art">
@@ -1480,9 +1348,9 @@ function ChapterPanel({ chapter }: { chapter: StoryChapter }) {
           </div>
           <div className="chapter-bottom">
             <span>{chapter.date}</span>
-            <Button className="ink-action" variant="outline" size="sm">
+            <Link href="/stories/chapter-16-dark-tide" className="ink-action chapter-read-action">
               继续阅读
-            </Button>
+            </Link>
           </div>
         </div>
       </div>
@@ -1552,6 +1420,52 @@ function TimeCard({ time }: { time: TimeInfo }) {
       <div className="compass-clock" aria-hidden="true">
         <ClockDial />
       </div>
+    </section>
+  );
+}
+
+function RunResultPanel({
+  result,
+}: {
+  result: WorldRuntimeRunResult | null;
+}) {
+  return (
+    <section className="ink-panel run-result-panel" aria-label="本轮变化">
+      <div className="section-top compact">
+        <h2>本轮变化</h2>
+        {result ? <span>第 {result.runDay} 天</span> : null}
+      </div>
+
+      {!result ? (
+        <div className="run-result-empty">
+          <Sparkles aria-hidden="true" className="size-5" />
+          <p>尚无本轮变化记录</p>
+          <span>等待下一轮世界推进。</span>
+        </div>
+      ) : (
+        <div className="run-result-list">
+          {runResultCategoryMeta.map((item) => {
+            const count = result.counts[item.key];
+            const details = result.details[item.key].slice(0, 2);
+
+            return (
+              <article className="run-result-item" key={item.key}>
+                <div className="run-result-summary">
+                  <DashboardIcon icon={item.icon} className="size-4" />
+                  <p>{item.getLabel(count)}</p>
+                </div>
+                {details.length > 0 ? (
+                  <ul>
+                    {details.map((detail) => (
+                      <li key={detail}>{detail}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </article>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }
@@ -1663,14 +1577,17 @@ function TrendsPanel() {
 
 function RightRail({
   relationships,
+  runResult,
   time,
 }: {
   relationships: Relationship[];
+  runResult: WorldRuntimeRunResult | null;
   time: TimeInfo;
 }) {
   return (
     <aside className="right-rail" aria-label="世界信息栏">
       <TimeCard time={time} />
+      <RunResultPanel result={runResult} />
       <RelationshipsPanel relationships={relationships} />
       <SecretsPanel />
       <TrendsPanel />
@@ -1774,6 +1691,7 @@ export function InkDashboard() {
     () => (hasRuntimeRecord ? deriveRuntimeTime(runtimeState) : dashboardData.time),
     [hasRuntimeRecord, runtimeState],
   );
+  const derivedRunResult = hasRuntimeRecord ? runtimeState.lastRunResult : null;
   const derivedCharacters = useMemo(
     () =>
       deriveSeedCharacters(
@@ -1816,31 +1734,18 @@ export function InkDashboard() {
       return;
     }
 
-    saveWorldRuntimeState(activeWorldId, advanceWorldRuntimeOneDay(runtimeState));
-  }
-
-  function handleRecordEvent(input: {
-    title: string;
-    summary: string;
-    type: WorldRuntimeEventType;
-    participants?: string[];
-    location?: string;
-    impact?: string;
-    detail?: string;
-    importance?: WorldRuntimeEventImportance;
-  }) {
-    if (!activeWorldId) {
-      return false;
-    }
-
-    const next = appendWorldRuntimeEvent(runtimeState, input);
-
-    if (!next) {
-      return false;
-    }
-
-    saveWorldRuntimeState(activeWorldId, next);
-    return true;
+    saveWorldRuntimeState(
+      activeWorldId,
+      runWorldRuntimeOneDay(runtimeState, {
+        characters: derivedCharacters,
+        relationships: derivedRelationships,
+        secrets: dashboardData.secrets,
+        chapter: {
+          title: derivedChapter.title,
+          summary: derivedChapter.summary,
+        },
+      }),
+    );
   }
 
   return (
@@ -1864,15 +1769,16 @@ export function InkDashboard() {
               onAdvanceDay={handleAdvanceDay}
             />
             <div className="content-grid">
-              <EventsPanel
-                events={derivedEvents}
-                onRecordEvent={handleRecordEvent}
-              />
+              <EventsPanel events={derivedEvents} />
               <ChapterPanel chapter={derivedChapter} />
             </div>
             <CharactersPanel characters={derivedCharacters} />
           </div>
-          <RightRail relationships={derivedRelationships} time={derivedTime} />
+          <RightRail
+            relationships={derivedRelationships}
+            runResult={derivedRunResult}
+            time={derivedTime}
+          />
         </div>
       </div>
       {settingsOpen ? (
