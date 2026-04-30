@@ -5,6 +5,9 @@ import type {
   WorldRuntimeEvent,
   WorldRuntimeEventType,
   WorldRuntimeLatestChapter,
+  WorldRuntimeRunResult,
+  WorldRuntimeRunResultCounts,
+  WorldRuntimeRunResultDetails,
   WorldRuntimeState,
 } from "@/types/world-runtime";
 
@@ -29,6 +32,13 @@ const EVENT_IMPORTANCE_LEVELS = new Set<WorldRuntimeEventImportance>([
   "important",
   "turning-point",
 ]);
+const RUN_RESULT_DETAIL_KEYS = [
+  "events",
+  "relationshipChanges",
+  "secretsDiscovered",
+  "goalChanges",
+  "storyDrafts",
+] as const;
 const CHINESE_DAYS = [
   "初一",
   "初二",
@@ -74,7 +84,30 @@ export const defaultWorldRuntimeState: WorldRuntimeState = {
     updatedAt: "",
   },
   latestChapter: null,
+  lastRunResult: null,
   updatedAt: "",
+};
+
+export type WorldRuntimeRunContext = {
+  characters?: Array<{
+    name: string;
+    goal?: string;
+    status?: string;
+  }>;
+  relationships?: Array<{
+    left: string;
+    right: string;
+    description?: string;
+    note?: string;
+    tension?: number;
+  }>;
+  secrets?: Array<{
+    text: string;
+  }>;
+  chapter?: {
+    title: string;
+    summary?: string;
+  };
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -221,6 +254,81 @@ function parseLatestChapter(value: unknown): WorldRuntimeLatestChapter | null {
   };
 }
 
+function createEmptyRunResultCounts(): WorldRuntimeRunResultCounts {
+  return {
+    events: 0,
+    relationshipChanges: 0,
+    secretsDiscovered: 0,
+    goalChanges: 0,
+    storyDrafts: 0,
+  };
+}
+
+function createEmptyRunResultDetails(): WorldRuntimeRunResultDetails {
+  return {
+    events: [],
+    relationshipChanges: [],
+    secretsDiscovered: [],
+    goalChanges: [],
+    storyDrafts: [],
+  };
+}
+
+function parseRunResultCounts(value: unknown): WorldRuntimeRunResultCounts {
+  if (!isRecord(value)) {
+    return createEmptyRunResultCounts();
+  }
+
+  return {
+    events: readNonNegativeNumber(value.events, 0),
+    relationshipChanges: readNonNegativeNumber(value.relationshipChanges, 0),
+    secretsDiscovered: readNonNegativeNumber(value.secretsDiscovered, 0),
+    goalChanges: readNonNegativeNumber(value.goalChanges, 0),
+    storyDrafts: readNonNegativeNumber(value.storyDrafts, 0),
+  };
+}
+
+function parseRunResultDetails(value: unknown): WorldRuntimeRunResultDetails {
+  if (!isRecord(value)) {
+    return createEmptyRunResultDetails();
+  }
+
+  return RUN_RESULT_DETAIL_KEYS.reduce<WorldRuntimeRunResultDetails>(
+    (details, key) => ({
+      ...details,
+      [key]: readStringList(value[key]).slice(0, 4),
+    }),
+    createEmptyRunResultDetails(),
+  );
+}
+
+function parseRunResult(value: unknown): WorldRuntimeRunResult | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  if (
+    (value.id !== undefined && typeof value.id !== "string") ||
+    (value.date !== undefined && typeof value.date !== "string") ||
+    (value.generatedAt !== undefined && typeof value.generatedAt !== "string") ||
+    (value.runDay !== undefined &&
+      (typeof value.runDay !== "number" || !Number.isFinite(value.runDay))) ||
+    (value.counts !== undefined && !isRecord(value.counts)) ||
+    (value.details !== undefined && !isRecord(value.details))
+  ) {
+    return null;
+  }
+
+  return {
+    id: readString(value.id, createRuntimeId("run")),
+    date: readString(value.date, DEFAULT_WORLD_DATE),
+    runDay: readNonNegativeNumber(value.runDay, 0),
+    generatedAt: readString(value.generatedAt, ""),
+    counts: parseRunResultCounts(value.counts),
+    details: parseRunResultDetails(value.details),
+  };
+}
+
 export function normalizeWorldRuntimeState(
   value: unknown,
 ): WorldRuntimeState {
@@ -241,6 +349,7 @@ export function normalizeWorldRuntimeState(
     events: parseEvents(value.events),
     chapterDraft: parseChapterDraft(value.chapterDraft),
     latestChapter: parseLatestChapter(value.latestChapter),
+    lastRunResult: parseRunResult(value.lastRunResult),
     updatedAt: readString(value.updatedAt, ""),
   };
 }
@@ -401,12 +510,120 @@ export function advanceWorldDate(value: string) {
   return value.replace(day, nextDay);
 }
 
-export function advanceWorldRuntimeOneDay(state: WorldRuntimeState) {
+function limitDetailText(value: string) {
+  return value.replace(/\s+/g, " ").trim().slice(0, 96);
+}
+
+function pickByRunDay<T>(items: T[], runDay: number, offset = 0) {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return items[(runDay + offset) % items.length];
+}
+
+function buildRunResult(
+  state: WorldRuntimeState,
+  date: string,
+  runDay: number,
+  context: WorldRuntimeRunContext = {},
+): WorldRuntimeRunResult {
+  const recentEvents = getRecentWorldRuntimeEvents(state.events);
+  const eventCount =
+    recentEvents.length > 0 ? Math.min(5, recentEvents.length) : context.characters?.length ? 1 : 0;
+  const relationshipCount = context.relationships?.length
+    ? Math.min(2, Math.max(1, context.relationships.length))
+    : 0;
+  const secretCount = context.secrets?.length ? 1 : 0;
+  const goalCount = context.characters?.length ? 1 : 0;
+  const storyDraftCount = context.chapter?.title ? 1 : 0;
+  const character = pickByRunDay(context.characters ?? [], runDay);
+  const relationship = pickByRunDay(context.relationships ?? [], runDay, 1);
+  const secret = pickByRunDay(context.secrets ?? [], runDay, 2);
+
+  const eventDetails =
+    recentEvents.length > 0
+      ? recentEvents.slice(0, eventCount).map((event) =>
+          limitDetailText(`${event.title}：${event.summary}`),
+        )
+      : character
+        ? [
+            limitDetailText(
+              `${character.name}围绕“${character.goal || "当前目标"}”推进了一条新线索。`,
+            ),
+          ]
+        : [];
+  const relationshipDetails = relationship
+    ? [
+        limitDetailText(
+          `${relationship.left}与${relationship.right}的张力被重新校准：${
+            relationship.description || relationship.note || "关系进入新的观察点"
+          }。`,
+        ),
+      ]
+    : [];
+  const secretDetails = secret
+    ? [limitDetailText(`${secret.text}出现可追踪痕迹，暂未写入事件日志。`)]
+    : [];
+  const goalDetails = character
+    ? [
+        limitDetailText(
+          `${character.name}的目标“${character.goal || "未命名目标"}”进入${
+            character.status || "新的"
+          }阶段。`,
+        ),
+      ]
+    : [];
+  const storyDraftDetails = context.chapter?.title
+    ? [
+        limitDetailText(
+          `围绕《${context.chapter.title}》生成一段本地草稿提示，等待后续整理。`,
+        ),
+      ]
+    : [];
+
+  return {
+    id: createRuntimeId("run"),
+    date,
+    runDay,
+    generatedAt: new Date().toISOString(),
+    counts: {
+      events: eventCount,
+      relationshipChanges: relationshipCount,
+      secretsDiscovered: secretCount,
+      goalChanges: goalCount,
+      storyDrafts: storyDraftCount,
+    },
+    details: {
+      events: eventDetails,
+      relationshipChanges: relationshipDetails,
+      secretsDiscovered: secretDetails,
+      goalChanges: goalDetails,
+      storyDrafts: storyDraftDetails,
+    },
+  };
+}
+
+export function runWorldRuntimeOneDay(
+  state: WorldRuntimeState,
+  context?: WorldRuntimeRunContext,
+) {
+  const currentWorldDate = advanceWorldDate(state.currentWorldDate);
+  const runDays = state.runDays + 1;
+
   return {
     ...state,
-    currentWorldDate: advanceWorldDate(state.currentWorldDate),
-    runDays: state.runDays + 1,
+    currentWorldDate,
+    runDays,
+    lastRunResult: buildRunResult(state, currentWorldDate, runDays, context),
   };
+}
+
+export function advanceWorldRuntimeOneDay(
+  state: WorldRuntimeState,
+  context?: WorldRuntimeRunContext,
+) {
+  return runWorldRuntimeOneDay(state, context);
 }
 
 export function appendWorldRuntimeEvent(

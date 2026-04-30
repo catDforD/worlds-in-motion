@@ -40,6 +40,35 @@ export type WorldRuntimeLatestChapter = {
   updatedAt: string;
 };
 
+export type WorldRuntimeRunResultCategory =
+  | "events"
+  | "relationshipChanges"
+  | "secretsDiscovered"
+  | "goalChanges"
+  | "storyDrafts";
+
+export type WorldRuntimeRunResultCounts = {
+  events: number;
+  relationshipChanges: number;
+  secretsDiscovered: number;
+  goalChanges: number;
+  storyDrafts: number;
+};
+
+export type WorldRuntimeRunResultDetails = Record<
+  WorldRuntimeRunResultCategory,
+  string[]
+>;
+
+export type WorldRuntimeRunResult = {
+  id: string;
+  date: string;
+  runDay: number;
+  generatedAt: string;
+  counts: WorldRuntimeRunResultCounts;
+  details: WorldRuntimeRunResultDetails;
+};
+
 export type WorldRuntimeState = {
   currentWorldDate: string;
   runDays: number;
@@ -47,6 +76,7 @@ export type WorldRuntimeState = {
   events: WorldRuntimeEvent[];
   chapterDraft: WorldRuntimeChapterDraft;
   latestChapter: WorldRuntimeLatestChapter | null;
+  lastRunResult: WorldRuntimeRunResult | null;
   updatedAt: string;
 };
 
