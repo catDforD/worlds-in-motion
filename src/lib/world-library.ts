@@ -225,13 +225,15 @@ function migrateLegacySingleWorldState(): WorldLibraryState {
   const world = buildMigratedWorldRecord(worldId);
 
   if (legacySettings) {
-    saveWorldSettings(worldId, legacySettings);
+    saveWorldSettings(worldId, legacySettings, { localOnly: true });
   } else if (createdWorld) {
-    saveWorldSettings(worldId, worldCreationToWorldSettings(createdWorld));
+    saveWorldSettings(worldId, worldCreationToWorldSettings(createdWorld), {
+      localOnly: true,
+    });
   }
 
   if (legacySeedAssets) {
-    saveWorldSeedAssets(worldId, legacySeedAssets);
+    saveWorldSeedAssets(worldId, legacySeedAssets, { localOnly: true });
   }
 
   if (legacyRuntime) {

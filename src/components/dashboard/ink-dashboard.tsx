@@ -36,7 +36,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import { Button } from "@/components/ui/button";
 import { dashboardData } from "@/lib/dashboard-data";
@@ -55,23 +55,25 @@ import {
   deriveSeedRelationships,
   deriveSeedStats,
   getWorldSeedAssetsSnapshot,
+  loadWorldSeedAssets,
   normalizeWorldSeedAssets,
   parseStoredWorldSeedAssets,
   saveWorldSeedAssets,
   subscribeToWorldSeedAssets,
 } from "@/lib/world-seed-assets";
 import {
+  advanceWorldDayOnBackend,
   getRecentWorldRuntimeEvents,
   getWorldRuntimeSnapshot,
   hasStoredWorldRuntime,
+  loadWorldRuntimeFromBackend,
   parseStoredWorldRuntimeState,
-  runWorldRuntimeOneDay,
-  saveWorldRuntimeState,
   subscribeToWorldRuntime,
-  toggleWorldRuntimePaused,
+  updateWorldRuntimePauseOnBackend,
 } from "@/lib/world-runtime";
 import {
   getWorldSettingsSnapshot,
+  loadWorldSettings,
   parseStoredWorldSettings,
   saveWorldSettings,
   subscribeToWorldSettings,
@@ -1705,12 +1707,39 @@ export function InkDashboard() {
     () => deriveSeedRelationships(seedAssets, dashboardData.relationships),
     [seedAssets],
   );
+
+  useEffect(() => {
+    if (activeWorldId) {
+      loadWorldSettings(activeWorldId).catch((error: unknown) => {
+        console.error("加载世界设定失败", error);
+      });
+    }
+  }, [activeWorldId]);
+
+  useEffect(() => {
+    if (activeWorldId) {
+      loadWorldSeedAssets(activeWorldId).catch((error: unknown) => {
+        console.error("加载世界内容种子失败", error);
+      });
+    }
+  }, [activeWorldId]);
+
+  useEffect(() => {
+    if (activeWorldId) {
+      loadWorldRuntimeFromBackend(activeWorldId).catch((error: unknown) => {
+        console.error("加载世界运行时状态失败", error);
+      });
+    }
+  }, [activeWorldId]);
+
   function handleSaveSettings(settings: WorldSettings) {
     if (!activeWorldId) {
       return;
     }
 
-    saveWorldSettings(activeWorldId, settings);
+    saveWorldSettings(activeWorldId, settings).catch((error: unknown) => {
+      console.error("保存世界设定失败", error);
+    });
   }
 
   function handleSaveSeedAssets(assets: WorldSeedAssets) {
@@ -1718,7 +1747,9 @@ export function InkDashboard() {
       return;
     }
 
-    saveWorldSeedAssets(activeWorldId, assets);
+    saveWorldSeedAssets(activeWorldId, assets).catch((error: unknown) => {
+      console.error("保存世界内容种子失败", error);
+    });
   }
 
   function handleTogglePaused() {
@@ -1726,7 +1757,11 @@ export function InkDashboard() {
       return;
     }
 
-    saveWorldRuntimeState(activeWorldId, toggleWorldRuntimePaused(runtimeState));
+    updateWorldRuntimePauseOnBackend(activeWorldId, !runtimeState.isPaused).catch(
+      (error: unknown) => {
+        console.error("更新暂停状态失败", error);
+      },
+    );
   }
 
   function handleAdvanceDay() {
@@ -1734,18 +1769,9 @@ export function InkDashboard() {
       return;
     }
 
-    saveWorldRuntimeState(
-      activeWorldId,
-      runWorldRuntimeOneDay(runtimeState, {
-        characters: derivedCharacters,
-        relationships: derivedRelationships,
-        secrets: dashboardData.secrets,
-        chapter: {
-          title: derivedChapter.title,
-          summary: derivedChapter.summary,
-        },
-      }),
-    );
+    advanceWorldDayOnBackend(activeWorldId).catch((error: unknown) => {
+      console.error("推进世界日期失败", error);
+    });
   }
 
   return (

@@ -11,6 +11,14 @@ import type {
   WorldRuntimeState,
 } from "@/types/world-runtime";
 
+import {
+  fetchWorldRuntime as fetchWorldRuntimeApi,
+  updateRuntimePause as updateRuntimePauseApi,
+  runWorldDay as runWorldDayApi,
+  fetchWorldEvents as fetchWorldEventsApi,
+  createWorldEvent as createWorldEventApi,
+} from "./api/world-state";
+
 export const WORLD_RUNTIME_STORAGE_KEY =
   "worlds-in-motion.world-runtime-state.v1";
 
@@ -453,7 +461,7 @@ export function hasStoredWorldRuntime(value: string | null, worldId: string | nu
   return Boolean(parseStoredWorldRuntimeMap(value)?.[worldId]);
 }
 
-export function saveWorldRuntimeState(worldId: string, state: WorldRuntimeState) {
+export function writeWorldRuntimeCache(worldId: string, state: WorldRuntimeState) {
   if (typeof window === "undefined") {
     return;
   }
@@ -472,6 +480,89 @@ export function saveWorldRuntimeState(worldId: string, state: WorldRuntimeState)
 
   window.localStorage.setItem(WORLD_RUNTIME_STORAGE_KEY, JSON.stringify(payload));
   window.dispatchEvent(new Event(WORLD_RUNTIME_CHANGED_EVENT));
+}
+
+export function saveWorldRuntimeState(worldId: string, state: WorldRuntimeState) {
+  writeWorldRuntimeCache(worldId, state);
+}
+
+export function loadWorldRuntimeFromBackend(worldId: string) {
+  return fetchWorldRuntimeApi(worldId)
+    .then((apiState) => {
+      writeWorldRuntimeCache(worldId, apiState as WorldRuntimeState);
+      return apiState;
+    })
+    .catch((error: unknown) => {
+      console.error("从后端读取世界运行时状态失败", error);
+      throw error;
+    });
+}
+
+export function updateWorldRuntimePauseOnBackend(
+  worldId: string,
+  isPaused: boolean,
+) {
+  return updateRuntimePauseApi(worldId, { isPaused })
+    .then((apiState) => {
+      writeWorldRuntimeCache(worldId, apiState as WorldRuntimeState);
+      return apiState;
+    })
+    .catch((error: unknown) => {
+      console.error("更新世界暂停状态失败", error);
+      throw error;
+    });
+}
+
+export function advanceWorldDayOnBackend(worldId: string) {
+  return runWorldDayApi(worldId)
+    .then((apiState) => {
+      writeWorldRuntimeCache(worldId, apiState as WorldRuntimeState);
+      return apiState;
+    })
+    .catch((error: unknown) => {
+      console.error("推进世界日期失败", error);
+      throw error;
+    });
+}
+
+export function loadWorldEventsFromBackend(worldId: string) {
+  return fetchWorldEventsApi(worldId)
+    .then((apiEvents) => {
+      const current = parseStoredWorldRuntimeState(getWorldRuntimeSnapshot(), worldId);
+      writeWorldRuntimeCache(worldId, { ...current, events: apiEvents });
+      return apiEvents;
+    })
+    .catch((error: unknown) => {
+      console.error("从后端读取世界事件失败", error);
+      throw error;
+    });
+}
+
+export function createWorldEventOnBackend(
+  worldId: string,
+  payload: {
+    title: string;
+    summary: string;
+    type?: WorldRuntimeEventType;
+    participants?: string[];
+    location?: string;
+    impact?: string;
+    detail?: string;
+    importance?: WorldRuntimeEventImportance;
+    date?: string | null;
+  },
+) {
+  return createWorldEventApi(worldId, payload)
+    .then((apiEvent) => {
+      const current = parseStoredWorldRuntimeState(getWorldRuntimeSnapshot(), worldId);
+      const updatedEvents = [apiEvent, ...current.events];
+      writeWorldRuntimeCache(worldId, { ...current, events: updatedEvents });
+      return apiEvent;
+    })
+    .catch((error: unknown) => {
+      console.error("创建世界事件失败", error);
+      throw error;
+    });
 }
 
 export function updateWorldRuntimeState(

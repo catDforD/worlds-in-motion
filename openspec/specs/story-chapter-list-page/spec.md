@@ -63,7 +63,7 @@ TBD - created by archiving change add-story-chapter-list-page. Update Purpose af
 - **THEN** 系统 MUST 显示可读错误或空状态，并提供返回故事章节列表页的入口
 
 ### Requirement: 首版 mock 数据边界
-系统 SHALL 将故事章节列表页首版限制为前端 mock 展示，不触发真实生成、后端持久化或本地运行记录写入。
+系统 SHALL 将故事章节列表页首版限制为前端 mock 展示，不触发真实生成、后端持久化或后端运行记录写入。
 
 #### Scenario: 页面加载不调用后端
 - **GIVEN** 用户访问故事章节列表页
@@ -75,8 +75,8 @@ TBD - created by archiving change add-story-chapter-list-page. Update Purpose af
 - **WHEN** 系统更新故事章节页面展示
 - **THEN** 系统 MUST NOT 触发 LangGraph、角色行动、世界推进、事件总结或故事生成工作流
 
-#### Scenario: mock 展示不改写本地运行记录
-- **GIVEN** 浏览器中存在 active world 的本地运行记录
+#### Scenario: mock 展示不改写后端运行记录
+- **GIVEN** 浏览器中存在 active world 的后端运行记录
 - **WHEN** 用户访问故事章节列表页或阅读 mock 章节
 - **THEN** 系统 MUST NOT 写入或改写 `WorldRuntimeState`、active world 或事件日志数据
 
@@ -102,4 +102,3 @@ TBD - created by archiving change add-story-chapter-list-page. Update Purpose af
 - **GIVEN** 故事章节列表页实现完成
 - **WHEN** 开发者运行项目静态检查或类型检查命令
 - **THEN** 系统 MUST 在无 TypeScript 和 lint 错误的情况下完成检查
-

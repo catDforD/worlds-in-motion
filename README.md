@@ -1,6 +1,6 @@
 # 织世录 Worlds in Motion
 
-织世录是一个多智能体叙事沙盘的前端原型，用来创建、查看和维护持续运行的虚构世界。当前版本包含水墨风工作台、新建世界流程、世界库切换，以及可在浏览器本地保存的世界设定、内容种子和运行记录。
+织世录是一个多智能体叙事沙盘的前端原型，用来创建、查看和维护持续运行的虚构世界。当前版本包含水墨风工作台、新建世界流程、世界库切换，以及可在浏览器本地保存的世界设定、内容种子和运行记录；仓库里也已经放入了 FastAPI + PostgreSQL 的世界状态后端骨架，后续会逐步切换数据源。
 
 ## 功能概览
 
@@ -11,7 +11,7 @@
 - 世界库与切换：创建页会新增本地世界记录并设为 active world；工作台顶部可切换已有世界。
 - 本地持久化：`localStorage` 保存 `worlds-in-motion.world-library.v1` 世界库、active world ID，以及按 `worldId` 隔离的世界设定、内容种子和运行记录；刷新后恢复当前世界，不同世界互不覆盖。
 - 本地事件字段：运行记录中的事件保存标题、摘要、类型、世界时间、创建时间，并可选保存参与角色、地点、影响、详情和重要性；旧事件缺少这些扩展字段时仍可展示。
-- 纯前端原型：当前不会发起后端请求，也不会触发数据库写入或 Agent 运行。
+- 前端默认仍使用本地状态源；后端 API 骨架已经存在，但尚未接入页面，不会触发数据库写入或 Agent 运行。
 
 ## 技术栈
 
@@ -19,6 +19,7 @@
 - TypeScript
 - Tailwind CSS 4
 - shadcn/ui
+- FastAPI + PostgreSQL 后端骨架
 - npm
 
 ## 快速开始
@@ -79,6 +80,8 @@ npm run dev
 npm run lint
 npm run typecheck
 npm run build
+python3 -m pytest backend/tests -q
+python3 -m uvicorn backend.app.main:app --reload --port 8000
 ```
 
 ## 页面入口
@@ -109,6 +112,8 @@ openspec/
 - 新建世界相关类型和选项位于 `src/types/world-creation.ts` 与 `src/lib/world-creation.ts`。
 - 世界库、active world 和旧单世界数据迁移逻辑位于 `src/lib/world-library.ts`。
 - 世界设定、内容种子和运行记录的按 `worldId` 读写逻辑分别位于 `src/lib/world-settings.ts`、`src/lib/world-seed-assets.ts` 和 `src/lib/world-runtime.ts`。
+- 后端 API 客户端封装位于 `src/lib/api/`，对应的请求/响应类型位于 `src/types/world-state-api.ts`。
+- 后端服务入口位于 `backend/app/main.py`，数据库模型和服务逻辑分别位于 `backend/app/db/` 与 `backend/app/services/`。
 - 事件日志页面位于 `src/app/events/page.tsx`，主要界面组件位于 `src/components/events/world-event-log.tsx`。
 - 世界设定编辑器集成在 `src/components/dashboard/ink-dashboard.tsx`。
 
