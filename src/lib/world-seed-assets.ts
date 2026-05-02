@@ -8,6 +8,11 @@ import type {
   WorldSeedRelationship,
 } from "@/types/world-seed-assets";
 
+import {
+  fetchWorldSeedAssets as fetchWorldSeedAssetsApi,
+  saveWorldSeedAssets as saveWorldSeedAssetsApi,
+} from "./api/world-state";
+
 export const WORLD_SEED_ASSETS_STORAGE_KEY =
   "worlds-in-motion.world-seed-assets.v1";
 
@@ -267,6 +272,38 @@ export function getStoredWorldSeedAssets(worldId: string | null) {
   return parseStoredWorldSeedAssets(getWorldSeedAssetsSnapshot(), worldId);
 }
 
+export function writeWorldSeedAssetsCache(
+  worldId: string,
+  assets: WorldSeedAssets,
+) {
+  const byWorldId = parseStoredWorldSeedAssetsMap(getWorldSeedAssetsSnapshot()) ?? {};
+  const payload: StoredWorldSeedAssets = {
+    version: STORAGE_VERSION,
+    byWorldId: {
+      ...byWorldId,
+      [worldId]: normalizeWorldSeedAssets(assets),
+    },
+  };
+
+  window.localStorage.setItem(
+    WORLD_SEED_ASSETS_STORAGE_KEY,
+    JSON.stringify(payload),
+  );
+  window.dispatchEvent(new Event(WORLD_SEED_ASSETS_CHANGED_EVENT));
+}
+
+export function loadWorldSeedAssets(worldId: string) {
+  return fetchWorldSeedAssetsApi(worldId)
+    .then((assets) => {
+      writeWorldSeedAssetsCache(worldId, assets);
+      return assets;
+    })
+    .catch((error: unknown) => {
+      console.error("从后端读取世界内容种子失败", error);
+      throw error;
+    });
+}
+
 export function subscribeToWorldSeedAssets(callback: () => void) {
   if (typeof window === "undefined") {
     return () => undefined;
@@ -287,25 +324,28 @@ export function subscribeToWorldSeedAssets(callback: () => void) {
   };
 }
 
-export function saveWorldSeedAssets(worldId: string, assets: WorldSeedAssets) {
+export function saveWorldSeedAssets(
+  worldId: string,
+  assets: WorldSeedAssets,
+  options: { localOnly?: boolean } = {},
+) {
   if (typeof window === "undefined") {
-    return;
+    return Promise.resolve();
   }
 
-  const byWorldId = parseStoredWorldSeedAssetsMap(getWorldSeedAssetsSnapshot()) ?? {};
-  const payload: StoredWorldSeedAssets = {
-    version: STORAGE_VERSION,
-    byWorldId: {
-      ...byWorldId,
-      [worldId]: normalizeWorldSeedAssets(assets),
-    },
-  };
+  if (options.localOnly) {
+    writeWorldSeedAssetsCache(worldId, assets);
+    return Promise.resolve();
+  }
 
-  window.localStorage.setItem(
-    WORLD_SEED_ASSETS_STORAGE_KEY,
-    JSON.stringify(payload),
-  );
-  window.dispatchEvent(new Event(WORLD_SEED_ASSETS_CHANGED_EVENT));
+  return saveWorldSeedAssetsApi(worldId, assets)
+    .then((savedAssets) => {
+      writeWorldSeedAssetsCache(worldId, savedAssets);
+    })
+    .catch((error: unknown) => {
+      console.error("保存世界内容种子到后端失败", error);
+      throw error;
+    });
 }
 
 export function hasWorldSeedAssets(assets: WorldSeedAssets) {

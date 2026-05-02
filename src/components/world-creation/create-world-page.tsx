@@ -110,7 +110,11 @@ export function CreateWorldPage() {
     });
     const { world: savedWorld } = addWorldRecord(world);
 
-    saveWorldSettings(savedWorld.id, worldCreationToWorldSettings(form));
+    saveWorldSettings(savedWorld.id, worldCreationToWorldSettings(form)).catch(
+      (error: unknown) => {
+        console.error("保存世界设定失败", error);
+      },
+    );
     router.push("/");
   }
 

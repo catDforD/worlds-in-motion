@@ -2,6 +2,10 @@ import type { WorldInfo } from "@/types/dashboard";
 import type { WorldCreationForm } from "@/types/world-creation";
 import type { StoredWorldSettings, WorldSettings } from "@/types/world-settings";
 
+import {
+  fetchWorldSettings as fetchWorldSettingsApi,
+  saveWorldSettings as saveWorldSettingsApi,
+} from "./api/world-state";
 import { getWorldTypeLabel } from "./world-creation";
 
 export const WORLD_SETTINGS_STORAGE_KEY = "worlds-in-motion.world-settings.v1";
@@ -127,6 +131,32 @@ export function getStoredWorldSettings(worldId: string | null) {
   return parseStoredWorldSettings(getWorldSettingsSnapshot(), worldId);
 }
 
+export function writeWorldSettingsCache(worldId: string, settings: WorldSettings) {
+  const byWorldId = parseStoredWorldSettingsMap(getWorldSettingsSnapshot()) ?? {};
+  const payload: StoredWorldSettings = {
+    version: STORAGE_VERSION,
+    byWorldId: {
+      ...byWorldId,
+      [worldId]: settings,
+    },
+  };
+
+  window.localStorage.setItem(WORLD_SETTINGS_STORAGE_KEY, JSON.stringify(payload));
+  window.dispatchEvent(new Event(WORLD_SETTINGS_CHANGED_EVENT));
+}
+
+export function loadWorldSettings(worldId: string) {
+  return fetchWorldSettingsApi(worldId)
+    .then((settings) => {
+      writeWorldSettingsCache(worldId, settings);
+      return settings;
+    })
+    .catch((error: unknown) => {
+      console.error("从后端读取世界设定失败", error);
+      throw error;
+    });
+}
+
 export function subscribeToWorldSettings(callback: () => void) {
   if (typeof window === "undefined") {
     return () => undefined;
@@ -147,22 +177,28 @@ export function subscribeToWorldSettings(callback: () => void) {
   };
 }
 
-export function saveWorldSettings(worldId: string, settings: WorldSettings) {
+export function saveWorldSettings(
+  worldId: string,
+  settings: WorldSettings,
+  options: { localOnly?: boolean } = {},
+) {
   if (typeof window === "undefined") {
-    return;
+    return Promise.resolve();
   }
 
-  const byWorldId = parseStoredWorldSettingsMap(getWorldSettingsSnapshot()) ?? {};
-  const payload: StoredWorldSettings = {
-    version: STORAGE_VERSION,
-    byWorldId: {
-      ...byWorldId,
-      [worldId]: settings,
-    },
-  };
+  if (options.localOnly) {
+    writeWorldSettingsCache(worldId, settings);
+    return Promise.resolve();
+  }
 
-  window.localStorage.setItem(WORLD_SETTINGS_STORAGE_KEY, JSON.stringify(payload));
-  window.dispatchEvent(new Event(WORLD_SETTINGS_CHANGED_EVENT));
+  return saveWorldSettingsApi(worldId, settings)
+    .then((savedSettings) => {
+      writeWorldSettingsCache(worldId, savedSettings);
+    })
+    .catch((error: unknown) => {
+      console.error("保存世界设定到后端失败", error);
+      throw error;
+    });
 }
 
 export function worldCreationToWorldSettings(form: WorldCreationForm): WorldSettings {

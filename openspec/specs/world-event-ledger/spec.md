@@ -1,66 +1,66 @@
 # world-event-ledger Specification
 
 ## Purpose
-定义前端本地世界运行记录能力，用于维护 active world 的当前时间、运行天数、暂停状态、事件列表、章节草稿和最新章节，并明确首版不会触发后端持久化或 Agent 运行。
+定义后端世界运行记录能力，用于维护 active world 的当前时间、运行天数、暂停状态、事件列表、章节草稿和最新章节，并明确首版不会触发 Agent 运行。
 ## Requirements
-### Requirement: 本地世界运行记录
-系统 SHALL 在前端本地按 active `worldId` 维护 `WorldRuntimeState`，用于记录对应世界的当前世界时间、运行天数、暂停状态、事件列表、章节草稿和最新章节。
+### Requirement: 后端世界运行记录
+系统 SHALL 在后端按 active `worldId` 维护 `WorldRuntimeState`，用于记录对应世界的当前世界时间、运行天数、暂停状态、事件列表、章节草稿和最新章节。
 
-#### Scenario: 初始化本地运行记录
-- **GIVEN** 用户首次访问某个 active world 且本地没有该 `worldId` 的世界运行记录
+#### Scenario: 初始化后端运行记录
+- **GIVEN** 用户首次访问某个 active world 且后端没有该 `worldId` 的世界运行记录
 - **WHEN** 系统读取 `WorldRuntimeState`
 - **THEN** 系统 MUST 创建或返回包含当前世界时间、运行天数、暂停状态、空事件列表、章节草稿和最新章节默认值的可用运行记录
 
 #### Scenario: 持久化运行记录
-- **GIVEN** 用户修改 active world 的暂停状态、推进日期、记录事件或更新章节信息
+- **GIVEN** 用户修改 active world 的暂停状态、推进日期或记录事件
 - **WHEN** 修改操作完成
-- **THEN** 系统 MUST 将更新后的 `WorldRuntimeState` 保存到 active `worldId` 对应的浏览器本地存储
+- **THEN** 系统 MUST 将更新后的 `WorldRuntimeState` 保存到 active `worldId` 对应的后端运行记录
 
 #### Scenario: 重新加载后恢复运行记录
-- **GIVEN** 用户已经在本地保存 active world 的世界运行记录
+- **GIVEN** 用户已经在后端保存 active world 的世界运行记录
 - **WHEN** 用户刷新页面或重新访问工作台
-- **THEN** 系统 MUST 从本地存储恢复 active `worldId` 对应的当前世界时间、运行天数、暂停状态、事件列表、章节草稿和最新章节
+- **THEN** 系统 MUST 从后端恢复 active `worldId` 对应的当前世界时间、运行天数、暂停状态、事件列表、章节草稿和最新章节
 
 #### Scenario: 切换世界后恢复对应运行记录
 - **GIVEN** 两个世界分别保存了不同的运行记录
 - **WHEN** 用户切换 active world
-- **THEN** 系统 MUST 在运行状态、事件列表和最新章节模块展示切换后 `worldId` 对应的运行记录
+- **THEN** 系统 MUST 在运行状态、事件列表和最新章节模块展示切换后 `worldId` 对应的后端运行记录
 
-#### Scenario: 本地记录损坏时回退
-- **GIVEN** 浏览器本地存储中的运行记录缺失必要字段或无法解析
+#### Scenario: 后端记录损坏时回退
+- **GIVEN** 后端返回的运行记录缺失必要字段或无法解析
 - **WHEN** 系统读取 `WorldRuntimeState`
 - **THEN** 系统 MUST 使用 active world 的可读默认运行记录回退，并且 MUST NOT 让工作台渲染失败
 
 ### Requirement: 暂停与继续运行
-系统 SHALL 允许用户在本地切换世界暂停状态，并将该状态用于工作台运行状态展示。
+系统 SHALL 允许用户在后端切换世界暂停状态，并将该状态用于工作台运行状态展示。
 
 #### Scenario: 暂停运行
-- **GIVEN** 本地世界运行记录处于运行中
+- **GIVEN** 后端世界运行记录处于运行中
 - **WHEN** 用户点击“暂停运行”
 - **THEN** 系统 MUST 将 `WorldRuntimeState.isPaused` 保存为 `true`，并在工作台显示暂停状态
 
 #### Scenario: 继续运行
-- **GIVEN** 本地世界运行记录处于暂停中
+- **GIVEN** 后端世界运行记录处于暂停中
 - **WHEN** 用户点击继续运行操作
 - **THEN** 系统 MUST 将 `WorldRuntimeState.isPaused` 保存为 `false`，并在工作台显示运行状态
 
 #### Scenario: 暂停状态不触发自动运行
 - **GIVEN** 用户切换暂停或继续状态
 - **WHEN** 系统保存状态
-- **THEN** 系统 MUST NOT 调用后端接口、写入数据库或触发 Agent 世界运行
+- **THEN** 系统 MUST NOT 触发 Agent 世界运行
 
 ### Requirement: 手动推进一日
-系统 SHALL 提供轻量手动入口，允许用户将本地世界时间推进一日、增加运行天数，并保存最近一次运行结果摘要。
+系统 SHALL 提供轻量手动入口，允许用户将后端世界时间推进一日、增加运行天数，并保存最近一次运行结果摘要。
 
 #### Scenario: 推进一日
-- **GIVEN** 工作台已加载本地世界运行记录
+- **GIVEN** 工作台已加载后端世界运行记录
 - **WHEN** 用户执行“运行一天”或兼容的“推进一日”操作
 - **THEN** 系统 MUST 将当前世界时间推进到下一日，将运行天数增加 1，并生成最近一次运行结果摘要
 
 #### Scenario: 推进一日后持久化
 - **GIVEN** 用户已经执行“运行一天”或兼容的“推进一日”操作
 - **WHEN** 页面重新加载
-- **THEN** 系统 MUST 显示推进后的当前世界时间、运行天数和最近一次运行结果摘要
+- **THEN** 系统 MUST 显示后端保存的推进后的当前世界时间、运行天数和最近一次运行结果摘要
 
 #### Scenario: 推进一日不自动写入事件日志
 - **GIVEN** 用户只执行“运行一天”或兼容的“推进一日”操作且没有填写事件内容
@@ -68,7 +68,7 @@
 - **THEN** 系统 MUST NOT 向 `WorldRuntimeState.events` 自动追加事件，MUST NOT 覆盖 `chapterDraft` 或 `latestChapter`，并且 MUST NOT 改写角色、关系或世界种子记录
 
 ### Requirement: 手动记录事件
-系统 SHALL 允许用户通过轻量入口手动创建世界运行事件；事件标题和摘要为必要内容，参与角色、地点、事件影响、事件详情、事件类型和重要性为可选结构化字段，并将事件保存到本地运行记录。
+系统 SHALL 允许用户通过轻量入口手动创建世界运行事件；事件标题和摘要为必要内容，参与角色、地点、事件影响、事件详情、事件类型和重要性为可选结构化字段，并将事件保存到后端运行记录。
 
 #### Scenario: 创建事件
 - **GIVEN** 用户在记录事件入口填写事件标题、摘要，并可选填写参与角色、地点、事件影响、事件详情、事件类型或重要性
@@ -76,7 +76,7 @@
 - **THEN** 系统 MUST 将事件加入 `WorldRuntimeState.events`，记录事件日期和创建时间，并保存所有已填写的结构化事实字段
 
 #### Scenario: 显示最新事件优先
-- **GIVEN** 本地世界运行记录中存在多条事件
+- **GIVEN** 后端世界运行记录中存在多条事件
 - **WHEN** 系统读取事件列表用于工作台或事件日志页面展示
 - **THEN** 系统 MUST 以最新创建或最新发生的事件优先展示事件
 
@@ -90,34 +90,29 @@
 - **WHEN** 系统保存事件
 - **THEN** 系统 MUST NOT 调用叙事生成、角色行动或其他 Agent 流程
 
-### Requirement: 本地章节记录
-系统 SHALL 在 `WorldRuntimeState` 中维护章节草稿和最新章节，用于支撑工作台最新故事章节展示。
+### Requirement: 后端章节记录
+系统 SHALL 在后端 `WorldRuntimeState` 中维护章节草稿和最新章节，用于支撑工作台最新故事章节展示。
 
-#### Scenario: 保存章节草稿
-- **GIVEN** 用户或界面逻辑更新章节草稿
-- **WHEN** 系统保存运行记录
-- **THEN** 系统 MUST 将章节草稿保存在 `WorldRuntimeState.chapterDraft`
+#### Scenario: 读取章节草稿
+- **GIVEN** 后端运行记录中包含章节草稿
+- **WHEN** 工作台渲染最新故事章节模块
+- **THEN** 系统 MUST 显示 `WorldRuntimeState.chapterDraft`
 
-#### Scenario: 保存最新章节
-- **GIVEN** 用户或界面逻辑更新最新章节标题、摘要或标签
-- **WHEN** 系统保存运行记录
-- **THEN** 系统 MUST 将最新章节保存在 `WorldRuntimeState.latestChapter`
+#### Scenario: 读取最新章节
+- **GIVEN** 后端运行记录中包含最新章节
+- **WHEN** 工作台渲染最新故事章节模块
+- **THEN** 系统 MUST 显示 `WorldRuntimeState.latestChapter`
 
 #### Scenario: 无章节记录时使用默认章节
-- **GIVEN** 本地运行记录没有最新章节
+- **GIVEN** 后端运行记录没有最新章节
 - **WHEN** 工作台渲染最新故事章节模块
 - **THEN** 系统 MUST 使用可读默认章节展示，而不是显示空白模块或报错
 
-### Requirement: 本地首版边界
-系统 SHALL 将世界运行记录首版限制在前端本地存储和手动维护范围内。
-
-#### Scenario: 不调用后端
-- **GIVEN** 用户读取、暂停、推进日期、记录事件或保存章节信息
-- **WHEN** 系统处理这些运行记录操作
-- **THEN** 系统 MUST NOT 调用 FastAPI、数据库接口或任何远程持久化接口
+### Requirement: 后端首版边界
+系统 SHALL 将世界运行记录首版限制在后端持久化和手动维护范围内。
 
 #### Scenario: 不触发 Agent
-- **GIVEN** 用户维护本地世界运行记录
+- **GIVEN** 用户维护后端世界运行记录
 - **WHEN** 任一运行记录操作完成
 - **THEN** 系统 MUST NOT 触发 LangGraph、角色行动、叙事生成或其他 Agent 工作流
 
@@ -130,7 +125,7 @@
 - **THEN** 系统 MUST 保留这些结构化事实字段，并继续保留事件 ID、时间、标题、摘要、类型和创建时间
 
 #### Scenario: 旧事件记录兼容
-- **GIVEN** 本地运行记录中存在旧事件，且旧事件缺少参与角色、地点、事件影响、事件详情或重要性字段
+- **GIVEN** 后端运行记录中存在旧事件，且旧事件缺少参与角色、地点、事件影响、事件详情或重要性字段
 - **WHEN** 系统解析 `WorldRuntimeState.events`
 - **THEN** 系统 MUST 将旧事件解析为可展示事件，并为缺失字段提供空数组、空字符串、默认重要性或摘要回退
 
@@ -141,7 +136,7 @@
 
 #### Scenario: 事件事实字段重新加载后保留
 - **GIVEN** 用户已经保存包含参与角色、地点、事件影响、事件详情和重要性的事件
-- **WHEN** 页面刷新并重新读取本地世界运行记录
+- **WHEN** 页面刷新并重新读取后端世界运行记录
 - **THEN** 系统 MUST 恢复这些结构化事实字段，而不是只保留标题和摘要
 
 ### Requirement: 最近运行结果摘要
@@ -149,7 +144,7 @@
 
 #### Scenario: 保存最近运行结果摘要
 - **GIVEN** 用户执行“运行一天”
-- **WHEN** 系统保存本地世界运行记录
+- **WHEN** 系统保存后端世界运行记录
 - **THEN** 系统 MUST 在 active `worldId` 对应的 `WorldRuntimeState.lastRunResult` 中保存本轮事件数、关系变化数、秘密发现数、角色目标改变数、故事草稿生成数、分类明细、发生日期、运行天数和生成时间
 
 #### Scenario: 运行结果统计为非负数
@@ -163,12 +158,12 @@
 - **THEN** 系统 MUST 使用空明细列表回退，并保留该分类的统计值
 
 #### Scenario: 旧运行记录兼容
-- **GIVEN** 本地运行记录缺少 `lastRunResult`
+- **GIVEN** 后端运行记录缺少 `lastRunResult`
 - **WHEN** 系统解析 `WorldRuntimeState`
 - **THEN** 系统 MUST 将最近运行结果解析为 `null`，并继续恢复当前世界时间、运行天数、暂停状态、事件列表、章节草稿和最新章节
 
 #### Scenario: 损坏运行结果回退
-- **GIVEN** 本地运行记录中的 `lastRunResult` 字段无法解析或缺少必要结构
+- **GIVEN** 后端运行记录中的 `lastRunResult` 字段无法解析或缺少必要结构
 - **WHEN** 系统读取 `WorldRuntimeState`
 - **THEN** 系统 MUST 丢弃损坏的最近运行结果并使用 `null` 回退，且 MUST NOT 让工作台或事件日志页面渲染失败
 
@@ -179,6 +174,5 @@
 
 #### Scenario: 运行结果不触发 Agent
 - **GIVEN** 用户执行“运行一天”并生成最近运行结果摘要
-- **WHEN** 系统保存运行记录
+- **WHEN** 系统保存后端运行记录
 - **THEN** 系统 MUST NOT 触发 LangGraph、角色行动、叙事生成或其他 Agent 工作流
-

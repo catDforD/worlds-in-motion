@@ -14,7 +14,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useMemo, useState, useSyncExternalStore, type FormEvent } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -24,11 +24,11 @@ import {
   subscribeToWorldLibrary,
 } from "@/lib/world-library";
 import {
-  appendWorldRuntimeEvent,
+  createWorldEventOnBackend,
   getRecentWorldRuntimeEvents,
   getWorldRuntimeSnapshot,
+  loadWorldEventsFromBackend,
   parseStoredWorldRuntimeState,
-  saveWorldRuntimeState,
   subscribeToWorldRuntime,
 } from "@/lib/world-runtime";
 import type { WorldLibraryState } from "@/types/world-library";
@@ -407,6 +407,14 @@ export function WorldEventLog() {
     [runtimeState.events],
   );
 
+  useEffect(() => {
+    if (activeWorldId) {
+      loadWorldEventsFromBackend(activeWorldId).catch((error: unknown) => {
+        console.error("加载世界事件失败", error);
+      });
+    }
+  }, [activeWorldId]);
+
   const selectedEvent =
     events.find((event) => event.id === selectedEventId) ?? events[0] ?? null;
   const worldName = activeWorld?.name ?? "未选择世界";
@@ -429,16 +437,17 @@ export function WorldEventLog() {
       return false;
     }
 
-    const next = appendWorldRuntimeEvent(runtimeState, input);
-
-    if (!next) {
-      return false;
-    }
-
-    const createdEvent = next.events[0] ?? null;
-    saveWorldRuntimeState(activeWorldId, next);
-    setSelectedEventId(createdEvent?.id ?? null);
-    setMode("detail");
+    createWorldEventOnBackend(activeWorldId, {
+      ...input,
+      date: runtimeState.currentWorldDate,
+    })
+      .then((createdEvent) => {
+        setSelectedEventId(createdEvent.id);
+        setMode("detail");
+      })
+      .catch((error: unknown) => {
+        console.error("创建事件失败", error);
+      });
 
     return true;
   }
@@ -456,7 +465,7 @@ export function WorldEventLog() {
           <p>
             {hasActiveWorld
               ? `当前世界：${worldName}`
-              : "当前没有 active world，事件日志暂时只显示本地空状态。"}
+              : "当前没有 active world，事件日志暂时只显示空状态。"}
           </p>
         </div>
         <div className="event-log-hero-side">
@@ -519,7 +528,7 @@ export function WorldEventLog() {
               <p>
                 {hasActiveWorld
                   ? "记录第一条事件后，这里会按最新创建时间展示完整日志。"
-                  : "创建或选择一个世界后，事件日志会读取对应 worldId 的本地运行记录。"}
+                  : "创建或选择一个世界后，事件日志会读取对应 worldId 的后端运行记录。"}
               </p>
               {hasActiveWorld ? (
                 <Button
